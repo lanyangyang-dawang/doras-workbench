@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#F5F3EF">
+  <link rel="manifest" href="manifest.json">
+  <title>Dora's 工作台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Noto Sans SC', sans-serif; background: #F5F3EF; }
+    .app-shell { max-width: 430px; margin: 0 auto; min-height: 100vh; position: relative; background: #F5F3EF; overflow: hidden; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .sidebar { width: 90px; background: #FFFFFF; border-right: 1px solid #EBE8E3; }
+    .nav-item { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 0; border-radius: 14px; margin: 6px 8px; cursor: pointer; transition: all .2s; }
+    .nav-item.active { background: #FFF8EC; }
+    .nav-icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 22px; }
+    .card { background: #FFFFFF; border-radius: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }
+    .btn-primary { background: #2D2D2D; color: #fff; border-radius: 14px; }
+    .checkbox { width: 22px; height: 22px; border: 2px solid #C8C4BC; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; }
+    .checkbox.done { background: #34C759; border-color: #34C759; }
+    .checkbox svg { width: 13px; height: 13px; color: white; opacity: 0; }
+    .checkbox.done svg { opacity: 1; }
+    .status-pending { background: #FFF8EC; color: #E6A23C; }
+    .status-done { background: #E8F5E9; color: #34C759; }
+    input, textarea { outline: none; }
+    .modal-overlay { background: rgba(0,0,0,0.45); }
+    .week-summary { background: linear-gradient(135deg, #FFF8EC 0%, #FFFFFF 100%); }
+    .pnl-positive { color: #34C759; }
+    .pnl-negative { color: #E53935; }
+  </style>
+</head>
+<body>
+<div id="app" class="app-shell flex">
+  <!-- Sidebar -->
+  <aside class="sidebar flex flex-col pt-4 pb-4">
+    <div class="flex flex-col items-center mb-4">
+      <img src="icon.jpg" class="w-12 h-12 rounded-full object-cover border-2 border-amber-100 shadow-sm" alt="Dora">
+      <span class="text-[10px] text-gray-500 mt-2 font-medium">Dora's</span>
+      <span class="text-[10px] text-gray-500 font-medium">工作台</span>
+    </div>
+    <nav class="flex-1 space-y-1">
+      <div class="nav-item active" data-page="tasks" onclick="switchPage('tasks')">
+        <div class="nav-icon bg-amber-100">📋</div>
+        <span class="text-[11px] text-gray-700 font-medium">每日任务</span>
+      </div>
+      <div class="nav-item" data-page="notes" onclick="switchPage('notes')">
+        <div class="nav-icon bg-blue-100">📝</div>
+        <span class="text-[11px] text-gray-700 font-medium">学习笔记</span>
+      </div>
+      <div class="nav-item" data-page="finance" onclick="switchPage('finance')">
+        <div class="nav-icon bg-yellow-100">💰</div>
+        <span class="text-[11px] text-gray-700 font-medium">理财记录</span>
+      </div>
+    </nav>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 flex flex-col h-screen overflow-hidden">
+    <!-- Header -->
+    <header class="px-4 pt-3 pb-2 flex items-center gap-3 bg-[#F5F3EF]">
+      <button class="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm text-gray-600">←</button>
+      <h1 class="text-lg font-bold text-gray-800">Dora's工作台</h1>
+    </header>
+
+    <!-- Content -->
+    <div id="content" class="flex-1 overflow-y-auto hide-scrollbar px-4 pb-24"></div>
+  </main>
+</div>
+
+<!-- Modal container -->
+<div id="modal" class="fixed inset-0 z-50 hidden modal-overlay flex items-end justify-center sm:items-center"></div>
+
+<script>
+/* =============== State =============== */
+const storeKey = 'dora_workbench_v1';
+let state = loadState();
+
+function loadState() {
+  const raw = localStorage.getItem(storeKey);
+  const defaults = {
+    tasks: [
+      { id: 1, title: '作息', desc: '21:40入睡 → 6:40起床', reminder: '06:40', done: false },
+      { id: 2, title: '英语单词', desc: '每日词汇积累', reminder: '21:00', done: false },
+      { id: 3, title: '英语听力', desc: '每日听力训练', reminder: '21:01', done: false },
+      { id: 4, title: '英语口语', desc: '每日口语练习', reminder: '21:02', done: false }
+    ],
+    notes: [],
+    finance: []
+  };
+  if (!raw) return defaults;
+  try { return { ...defaults, ...JSON.parse(raw) }; } catch { return defaults; }
+}
+function saveState() { localStorage.setItem(storeKey, JSON.stringify(state)); }
+
+let currentPage = 'tasks';
+
+/* =============== Navigation =============== */
+function switchPage(page) {
+  currentPage = page;
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  render();
+}
+
+/* =============== Helpers =============== */
+const todayStr = () => new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+const weekRange = () => {
+  const now = new Date();
+  const day = now.getDay() || 7;
+  const mon = new Date(now); mon.setDate(now.getDate() - day + 1);
+  const sun = new Date(now); sun.setDate(now.getDate() + (7 - day));
+  const fmt = d => `${d.getMonth()+1}/${d.getDate()}`;
+  return `${fmt(mon)} - ${fmt(sun)}`;
+};
+const isSunday = () => new Date().getDay() === 0;
+
+/* =============== Daily Tasks =============== */
+function renderTasks() {
+  const pending = state.tasks.filter(t => !t.done).length;
+  const total = state.tasks.length;
+  const today = new Date();
+  const dateLabel = `${today.getMonth()+1}/${today.getDate()} 周${'日一二三四五六'[today.getDay()]}`;
+
+  let html = `
+    <div class="mb-4">
+      <h2 class="text-2xl font-bold text-gray-800">每日任务</h2>
+      <p class="text-sm text-gray-500 mt-1">今日待办 · ${dateLabel}</p>
+    </div>
+
+    <div class="card p-4 mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="text-xl">✅</span>
+        <span class="font-bold text-gray-800">今日待办清单</span>
+      </div>
+      <div class="space-y-3" id="task-list">
+        ${state.tasks.map(t => taskItem(t)).join('')}
+      </div>
+      <div class="mt-4 space-y-2">
+        <input id="new-task-title" type="text" placeholder="任务名称..." class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+        <div class="flex gap-2">
+          <input id="new-task-reminder" type="time" class="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm text-gray-600">
+          <button onclick="addTask()" class="btn-primary px-5 py-2 text-sm font-medium">添加</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-4 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">📊</span>
+          <span class="font-bold text-gray-800">本周完成情况</span>
+        </div>
+        <span class="text-xs text-gray-400">${weekRange()}</span>
+      </div>
+      <div class="space-y-2">
+        ${state.tasks.map(t => `
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-gray-700">${t.title}</span>
+            <span class="font-medium ${t.done ? 'text-green-500' : 'text-amber-500'}">${t.done ? '1/1' : '0/1'}</span>
+          </div>
+        `).join('')}
+      </div>
+      <div class="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
+        <span class="text-sm text-gray-500">总进度</span>
+        <span class="text-lg font-bold text-gray-800">${total ? Math.round((total-pending)/total*100) : 0}%</span>
+      </div>
+    </div>
+  `;
+  return html;
+}
+
+function showWeekSummaryModal() {
+  const total = state.tasks.length;
+  const completed = state.tasks.filter(t => t.done).length;
+  const rate = total ? Math.round(completed/total*100) : 0;
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-6">
+      <div class="text-center mb-5">
+        <div class="text-4xl mb-2">🎉</div>
+        <h3 class="text-xl font-bold text-gray-800">本周总结</h3>
+        <p class="text-xs text-gray-400 mt-1">${weekRange()}</p>
+      </div>
+      <div class="space-y-3 mb-5">
+        ${state.tasks.map(t => `
+          <div class="flex items-center justify-between text-sm bg-gray-50 rounded-xl px-3 py-2">
+            <span class="text-gray-700">${t.title}</span>
+            <span class="font-medium ${t.done ? 'text-green-500' : 'text-amber-500'}">${t.done ? '已完成' : '待完成'}</span>
+          </div>
+        `).join('')}
+      </div>
+      <div class="flex items-center justify-between bg-amber-50 rounded-2xl p-4 mb-5">
+        <span class="text-sm font-medium text-gray-700">总进度</span>
+        <span class="text-2xl font-bold text-gray-800">${rate}%</span>
+      </div>
+      <button onclick="closeModal()" class="w-full py-3 rounded-xl btn-primary text-sm font-medium">知道了</button>
+    </div>
+  `);
+}
+
+function taskItem(t) {
+  return `
+    <div class="flex items-start gap-3 p-2 rounded-xl hover:bg-gray-50 transition">
+      <div class="checkbox ${t.done ? 'done' : ''}" onclick="toggleTask(${t.id})">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="text-[15px] font-semibold text-gray-800 ${t.done ? 'line-through text-gray-400' : ''}">${t.title}</div>
+        <div class="text-xs text-gray-500 mt-0.5">${t.desc || ''}</div>
+        <div class="flex items-center gap-1 mt-1 text-xs text-gray-500">
+          <span>⏰</span>
+          <span>${t.reminder || '无提醒'}</span>
+        </div>
+      </div>
+      <div class="flex flex-col items-end gap-2">
+        <span class="text-[11px] px-2 py-1 rounded-full font-medium ${t.done ? 'status-done' : 'status-pending'}">${t.done ? '已完成' : '待完成'}</span>
+        <button onclick="deleteTask(${t.id})" class="text-gray-400 hover:text-red-500 text-xs">删除</button>
+      </div>
+    </div>
+  `;
+}
+
+function addTask() {
+  const titleEl = document.getElementById('new-task-title');
+  const reminderEl = document.getElementById('new-task-reminder');
+  const title = titleEl.value.trim();
+  if (!title) return;
+  state.tasks.push({ id: Date.now(), title, desc: '', reminder: reminderEl.value, done: false });
+  titleEl.value = '';
+  reminderEl.value = '';
+  saveState(); render();
+}
+function toggleTask(id) {
+  const t = state.tasks.find(x => x.id === id);
+  if (t) { t.done = !t.done; saveState(); render(); }
+}
+function deleteTask(id) {
+  if (confirm('确定删除这个任务吗？')) {
+    state.tasks = state.tasks.filter(x => x.id !== id);
+    saveState(); render();
+  }
+}
+
+/* =============== Study Notes =============== */
+function renderNotes() {
+  return `
+    <div class="mb-4">
+      <h2 class="text-2xl font-bold text-gray-800">学习笔记</h2>
+      <p class="text-sm text-gray-500 mt-1">记录每天学到的新知识</p>
+    </div>
+    <div class="flex gap-2 mb-4">
+      <button onclick="openNoteModal()" class="btn-primary flex-1 py-3 text-sm font-medium shadow-sm">+ 新建笔记</button>
+      <button onclick="pasteToNewNote()" class="card px-4 py-3 text-sm font-medium text-gray-700 shadow-sm">粘贴</button>
+    </div>
+    <div id="notes-list" class="space-y-3">
+      ${state.notes.length ? state.notes.map(n => noteCard(n)).join('') : emptyState('还没有笔记，点击上方新建')}</div>
+    </div>
+  `;
+}
+function noteCard(n) {
+  const preview = n.content ? n.content.slice(0, 60) + (n.content.length > 60 ? '...' : '') : '暂无内容';
+  return `
+    <div class="card p-4">
+      <div class="flex items-start justify-between gap-2">
+        <h3 class="font-bold text-gray-800 text-[15px]">${n.title || '未命名笔记'}</h3>
+        <span class="text-[10px] text-gray-400 whitespace-nowrap">${n.time || ''}</span>
+      </div>
+      <p class="text-sm text-gray-600 mt-2 leading-relaxed whitespace-pre-wrap">${preview}</p>
+      <div class="flex gap-3 mt-3">
+        <button onclick="openNoteModal(${n.id})" class="text-xs text-gray-600 font-medium">编辑</button>
+        <button onclick="copyNote(${n.id})" class="text-xs text-gray-600 font-medium">复制</button>
+        <button onclick="deleteNote(${n.id})" class="text-xs text-red-500 font-medium">删除</button>
+      </div>
+    </div>
+  `;
+}
+
+let editingNoteId = null;
+let noteClipboard = '';
+function openNoteModal(id = null) {
+  editingNoteId = id;
+  const n = id ? state.notes.find(x => x.id === id) : null;
+  const title = n ? n.title : '';
+  const content = n ? n.content : '';
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
+      <h3 class="text-lg font-bold text-gray-800 mb-4">${id ? '编辑笔记' : '新建笔记'}</h3>
+      <input id="note-title" type="text" placeholder="标题" value="${escapeHtml(title)}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm mb-3">
+      <textarea id="note-content" placeholder="把今天学到的内容写在这里..." class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm h-40 resize-none">${escapeHtml(content)}</textarea>
+      <div class="flex gap-3 mt-5">
+        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">取消</button>
+        <button onclick="saveNote()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">保存</button>
+      </div>
+    </div>
+  `);
+}
+async function pasteToNewNote() {
+  try { noteClipboard = await navigator.clipboard.readText(); } catch { noteClipboard = noteClipboard || ''; }
+  openNoteModal();
+  setTimeout(() => {
+    const el = document.getElementById('note-content');
+    if (el && noteClipboard) el.value = noteClipboard;
+  }, 50);
+}
+function saveNote() {
+  const title = document.getElementById('note-title').value.trim();
+  const content = document.getElementById('note-content').value;
+  if (!title && !content) { closeModal(); return; }
+  const now = new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  if (editingNoteId) {
+    const n = state.notes.find(x => x.id === editingNoteId);
+    n.title = title || n.title;
+    n.content = content;
+    n.time = now;
+  } else {
+    state.notes.unshift({ id: Date.now(), title: title || '未命名笔记', content, time: now });
+  }
+  saveState(); closeModal(); render();
+}
+function copyNote(id) {
+  const n = state.notes.find(x => x.id === id);
+  if (n) {
+    navigator.clipboard.writeText(n.content).then(() => alert('已复制到剪贴板')).catch(() => { noteClipboard = n.content; alert('已复制（兼容模式）'); });
+  }
+}
+function deleteNote(id) {
+  if (confirm('确定删除这条笔记吗？')) {
+    state.notes = state.notes.filter(x => x.id !== id);
+    saveState(); render();
+  }
+}
+
+/* =============== Finance =============== */
+function calcPnL(item) {
+  const buy = parseFloat(item.buy) || 0;
+  const sell = parseFloat(item.sell) || 0;
+  const qty = parseInt(item.qty) || 0;
+  const fee = parseFloat(item.fee) || 0;
+  if (!sell) return 0;
+  return (sell - buy) * qty - fee;
+}
+function renderFinance() {
+  const total = state.finance.reduce((sum, i) => sum + calcPnL(i), 0);
+  const sign = total >= 0 ? '+' : '';
+  return `
+    <div class="mb-4">
+      <h2 class="text-2xl font-bold text-gray-800">理财记录</h2>
+      <p class="text-sm text-gray-500 mt-1">追踪投资收益</p>
+    </div>
+    <div class="card p-4 mb-4 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="text-xl">📊</span>
+        <span class="font-bold text-gray-800">总盈亏</span>
+      </div>
+      <span class="text-2xl font-bold ${total >= 0 ? 'pnl-positive' : 'pnl-negative'}">${sign}${total.toFixed(2)}</span>
+    </div>
+    <button onclick="openFinanceModal()" class="btn-primary w-full py-3 text-sm font-medium mb-4 shadow-sm">+ 新建理财记录</button>
+    <div class="space-y-3">
+      ${state.finance.length ? state.finance.map(f => financeCard(f)).join('') : emptyState('还没有理财记录')}</div>
+    </div>
+  `;
+}
+function financeCard(f) {
+  const pnl = calcPnL(f);
+  const sign = pnl >= 0 ? '+' : '';
+  return `
+    <div class="card p-4">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="text-[15px] font-bold text-gray-800">${f.name}</div>
+          <div class="text-xs text-gray-400 mt-0.5">${f.date}</div>
+        </div>
+        <span class="text-lg font-bold ${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">${sign}${pnl.toFixed(2)}</span>
+      </div>
+      <div class="grid grid-cols-2 gap-2 mt-3 text-xs text-gray-600">
+        <div class="bg-gray-50 rounded-lg p-2">买入价 <span class="font-semibold">${f.buy}</span></div>
+        <div class="bg-gray-50 rounded-lg p-2">卖出价 <span class="font-semibold">${f.sell || '-'}</span></div>
+        <div class="bg-gray-50 rounded-lg p-2">数量 <span class="font-semibold">${f.qty}</span></div>
+        <div class="bg-gray-50 rounded-lg p-2">手续费 <span class="font-semibold">${f.fee}</span></div>
+      </div>
+      <div class="flex gap-3 mt-3">
+        <button onclick="deleteFinance(${f.id})" class="text-xs text-red-500 font-medium">删除</button>
+      </div>
+    </div>
+  `;
+}
+
+function openFinanceModal() {
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
+      <h3 class="text-lg font-bold text-gray-800 mb-4 text-center">新建理财记录</h3>
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs text-gray-500 mb-1 block">日期</label>
+          <input id="fin-date" type="date" value="${new Date().toISOString().slice(0,10)}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 mb-1 block">股票/基金名称 *</label>
+          <input id="fin-name" type="text" placeholder="例如：广深铁路" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">买入价 *</label>
+            <input id="fin-buy" type="number" step="0.01" placeholder="0.00" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">卖出价</label>
+            <input id="fin-sell" type="number" step="0.01" placeholder="选填" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">数量（股）*</label>
+            <input id="fin-qty" type="number" placeholder="0" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">手续费</label>
+            <input id="fin-fee" type="number" step="0.01" placeholder="0.00" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+          </div>
+        </div>
+      </div>
+      <div class="flex gap-3 mt-5">
+        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">取消</button>
+        <button onclick="saveFinance()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">保存</button>
+      </div>
+    </div>
+  `);
+}
+function saveFinance() {
+  const item = {
+    id: Date.now(),
+    date: document.getElementById('fin-date').value,
+    name: document.getElementById('fin-name').value.trim(),
+    buy: document.getElementById('fin-buy').value,
+    sell: document.getElementById('fin-sell').value,
+    qty: document.getElementById('fin-qty').value,
+    fee: document.getElementById('fin-fee').value || '0'
+  };
+  if (!item.name || !item.buy || !item.qty) { alert('请填写必填项'); return; }
+  state.finance.unshift(item);
+  saveState(); closeModal(); render();
+}
+function deleteFinance(id) {
+  if (confirm('确定删除这条记录吗？')) {
+    state.finance = state.finance.filter(x => x.id !== id);
+    saveState(); render();
+  }
+}
+
+/* =============== UI Utilities =============== */
+function emptyState(text) {
+  return `<div class="text-center py-12 text-gray-400 text-sm">${text}</div>`;
+}
+function showModal(content) {
+  const m = document.getElementById('modal');
+  m.innerHTML = content;
+  m.classList.remove('hidden');
+}
+function closeModal() {
+  document.getElementById('modal').classList.add('hidden');
+  document.getElementById('modal').innerHTML = '';
+}
+function escapeHtml(text) {
+  const div = document.createElement('div'); div.textContent = text; return div.innerHTML;
+}
+
+function render() {
+  const content = document.getElementById('content');
+  if (currentPage === 'tasks') content.innerHTML = renderTasks();
+  else if (currentPage === 'notes') content.innerHTML = renderNotes();
+  else if (currentPage === 'finance') content.innerHTML = renderFinance();
+}
+
+// Init
+document.getElementById('modal').addEventListener('click', e => {
+  if (e.target.id === 'modal') closeModal();
+});
+render();
+
+// 每周日自动弹出总结
+if (isSunday()) {
+  const lastShown = localStorage.getItem('dora_weeksummary_lastshown');
+  const today = new Date().toDateString();
+  if (lastShown !== today) {
+    showWeekSummaryModal();
+    localStorage.setItem('dora_weeksummary_lastshown', today);
+  }
+}
+
+// Service Worker 注册（支持离线访问）
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
