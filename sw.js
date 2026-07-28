@@ -19,3 +19,8 @@ self.addEventListener('fetch', e => {
     }))
   );
 });
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.openWindow('./'));
+});
