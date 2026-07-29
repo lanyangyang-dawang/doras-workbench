@@ -10,13 +10,14 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
   <style>
     body { font-family: 'Noto Sans SC', sans-serif; background: #F5F3EF; }
-    .app-shell { max-width: 430px; margin: 0 auto; min-height: 100vh; position: relative; background: #F5F3EF; overflow: hidden; }
+    .app-shell { min-height: 100vh; position: relative; background: #F5F3EF; overflow: hidden; }
     .hide-scrollbar::-webkit-scrollbar { display: none; }
     .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    .sidebar { width: 90px; background: #FFFFFF; border-right: 1px solid #EBE8E3; }
+    .sidebar { width: 90px; background: #FFFFFF; border-right: 1px solid #EBE8E3; flex-shrink: 0; }
     .nav-item { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 0; border-radius: 14px; margin: 6px 8px; cursor: pointer; transition: all .2s; }
     .nav-item.active { background: #FFF8EC; }
     .nav-icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 22px; }
+    .nav-label { display: block; }
     .card { background: #FFFFFF; border-radius: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }
     .btn-primary { background: #2D2D2D; color: #fff; border-radius: 14px; }
     .checkbox { width: 22px; height: 22px; border: 2px solid #C8C4BC; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; }
@@ -32,43 +33,110 @@
     .pnl-negative { color: #E53935; }
     @keyframes bell-ring { 0%,100% { transform: rotate(0); } 10% { transform: rotate(8deg); } 20% { transform: rotate(-8deg); } 30% { transform: rotate(4deg); } 40% { transform: rotate(-4deg); } 50% { transform: rotate(0); } }
     .bell-ring { animation: bell-ring 1.2s ease-in-out infinite; }
+    /* Lock screen */
+    .lock-screen { background: linear-gradient(135deg, #FFF8EC 0%, #F5F3EF 50%, #FFFFFF 100%); }
+    .lock-input { background: rgba(255,255,255,0.9); border: 2px solid #EBE8E3; border-radius: 16px; }
+    .lock-input:focus { border-color: #E6A23C; }
+    /* Desktop responsive */
+    @media (min-width: 768px) {
+      .sidebar { width: 200px; }
+      .nav-item { flex-direction: row; gap: 12px; padding: 12px 20px; margin: 4px 12px; border-radius: 16px; }
+      .nav-icon { width: 40px; height: 40px; font-size: 20px; }
+      .nav-label { font-size: 14px; }
+      .content-wrap { max-width: 800px; margin: 0 auto; }
+      .card { border-radius: 24px; }
+      .fin-grid { grid-template-columns: repeat(4, 1fr); }
+      .lock-avatar { width: 96px; height: 96px; }
+      .lock-title { font-size: 28px; }
+    }
   </style>
 </head>
 <body>
-<div id="app" class="app-shell flex">
+<!-- Lock Screen -->
+<div id="lock-screen" class="lock-screen fixed inset-0 z-[100] flex items-center justify-center">
+  <div class="w-full max-w-[400px] px-6">
+    <div class="text-center mb-6">
+      <img src="icon.jpg" class="lock-avatar w-20 h-20 rounded-full object-cover border-4 border-amber-100 shadow-md mx-auto mb-4" alt="Dora">
+      <h1 class="lock-title text-2xl font-bold text-gray-800">Dora's 工作台</h1>
+      <p id="lock-hint" class="text-sm text-gray-500 mt-2">请输入密码解锁</p>
+    </div>
+
+    <!-- Tab 切换 -->
+    <div class="bg-white/70 rounded-2xl p-1 flex gap-1 mb-5 border border-amber-100/60">
+      <button id="lock-tab-unlock" type="button" onclick="switchLockTab('unlock')" class="flex-1 py-2 text-xs font-medium rounded-xl bg-white shadow-sm text-gray-800 transition">密码解锁</button>
+      <button id="lock-tab-sync" type="button" onclick="switchLockTab('sync')" class="flex-1 py-2 text-xs font-medium rounded-xl text-gray-500 transition">同步导入</button>
+    </div>
+
+    <!-- 密码模式 -->
+    <div id="lock-pwd-form">
+      <div id="lock-set" class="hidden space-y-3 mb-4">
+        <input id="lock-new-pwd" type="password" placeholder="设置密码（至少4位）" class="lock-input w-full px-4 py-3 text-sm">
+        <input id="lock-confirm-pwd" type="password" placeholder="确认密码" class="lock-input w-full px-4 py-3 text-sm">
+      </div>
+      <div id="lock-enter" class="hidden mb-4">
+        <input id="lock-pwd" type="password" placeholder="输入密码" class="lock-input w-full px-4 py-3 text-sm" autocomplete="off">
+      </div>
+      <p id="lock-error" class="text-red-500 text-xs text-center mb-3 hidden"></p>
+      <button id="lock-btn" onclick="handleLock()" class="btn-primary w-full py-3 text-sm font-medium">解锁</button>
+      <p id="lock-help" class="text-xs text-gray-400 text-center mt-4 leading-relaxed">
+        💡 在两台设备上设置相同的密码即可通用
+      </p>
+    </div>
+
+    <!-- 同步码导入模式 -->
+    <div id="lock-sync-form" class="hidden">
+      <p class="text-xs text-gray-500 mb-3 leading-relaxed">
+        如果你的另一台设备已经设置过密码，可以把那里的「同步码」粘贴到下方，本设备会解锁同样的内容：
+      </p>
+      <textarea id="lock-sync-input" rows="4" placeholder="把同步码粘贴到这里..." class="lock-input w-full px-4 py-3 text-xs font-mono break-all resize-none" style="white-space: pre-wrap; word-break: break-all;"></textarea>
+      <p id="lock-sync-error" class="text-red-500 text-xs text-center mt-2 hidden"></p>
+      <button onclick="handleImportSync()" class="btn-primary w-full py-3 text-sm font-medium mt-3">导入并解锁</button>
+      <p class="text-xs text-gray-400 text-center mt-4 leading-relaxed">
+        💡 先在已设密码的设备上点底部「修改密码」→「同步到其他设备」
+      </p>
+    </div>
+  </div>
+</div>
+
+<div id="app" class="app-shell flex hidden">
   <!-- Sidebar -->
   <aside class="sidebar flex flex-col pt-4 pb-4">
     <div class="flex flex-col items-center mb-4">
       <img src="icon.jpg" class="w-12 h-12 rounded-full object-cover border-2 border-amber-100 shadow-sm" alt="Dora">
-      <span class="text-[10px] text-gray-500 mt-2 font-medium">Dora's</span>
-      <span class="text-[10px] text-gray-500 font-medium">工作台</span>
+      <span class="text-[10px] sm:text-sm text-gray-500 mt-2 font-medium">Dora's</span>
+      <span class="text-[10px] sm:text-sm text-gray-500 font-medium">工作台</span>
     </div>
     <nav class="flex-1 space-y-1">
       <div class="nav-item active" data-page="tasks" onclick="switchPage('tasks')">
         <div class="nav-icon bg-amber-100">📋</div>
-        <span class="text-[11px] text-gray-700 font-medium">每日任务</span>
+        <span class="nav-label text-[11px] sm:text-sm text-gray-700 font-medium">每日任务</span>
       </div>
       <div class="nav-item" data-page="notes" onclick="switchPage('notes')">
         <div class="nav-icon bg-blue-100">📝</div>
-        <span class="text-[11px] text-gray-700 font-medium">学习笔记</span>
+        <span class="nav-label text-[11px] sm:text-sm text-gray-700 font-medium">学习笔记</span>
       </div>
       <div class="nav-item" data-page="finance" onclick="switchPage('finance')">
         <div class="nav-icon bg-yellow-100">💰</div>
-        <span class="text-[11px] text-gray-700 font-medium">理财记录</span>
+        <span class="nav-label text-[11px] sm:text-sm text-gray-700 font-medium">理财记录</span>
       </div>
     </nav>
+    <div class="px-2 mt-2">
+      <button onclick="openChangePwdModal()" class="nav-item w-full text-gray-400 hover:text-gray-700">
+        <div class="nav-icon bg-gray-100 text-[16px]">🔒</div>
+        <span class="nav-label text-[11px] sm:text-sm text-gray-500 font-medium">修改密码</span>
+      </button>
+    </div>
   </aside>
 
   <!-- Main -->
   <main class="flex-1 flex flex-col h-screen overflow-hidden">
     <!-- Header -->
     <header class="px-4 pt-3 pb-2 flex items-center gap-3 bg-[#F5F3EF]">
-      <button class="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm text-gray-600">←</button>
       <h1 class="text-lg font-bold text-gray-800">Dora's工作台</h1>
     </header>
 
     <!-- Content -->
-    <div id="content" class="flex-1 overflow-y-auto hide-scrollbar px-4 pb-24"></div>
+    <div id="content" class="flex-1 overflow-y-auto hide-scrollbar px-4 pb-24 content-wrap"></div>
   </main>
 </div>
 
@@ -76,6 +144,237 @@
 <div id="modal" class="fixed inset-0 z-50 hidden modal-overlay flex items-end justify-center sm:items-center"></div>
 
 <script>
+/* =============== Password Lock =============== */
+const pwdKey = 'dora_password_hash';
+async function sha256(str) {
+  const buf = new TextEncoder().encode(str);
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function initLockScreen() {
+  const hasPwd = localStorage.getItem(pwdKey);
+  const lockSet = document.getElementById('lock-set');
+  const lockEnter = document.getElementById('lock-enter');
+  const lockHint = document.getElementById('lock-hint');
+  const lockBtn = document.getElementById('lock-btn');
+  if (hasPwd) {
+    lockSet.classList.add('hidden');
+    lockEnter.classList.remove('hidden');
+    lockHint.textContent = '请输入密码解锁';
+    lockBtn.textContent = '解锁';
+  } else {
+    lockSet.classList.remove('hidden');
+    lockEnter.classList.add('hidden');
+    lockHint.textContent = '首次使用，请设置密码';
+    lockBtn.textContent = '设置密码';
+  }
+  // 强制切回密码解锁 Tab，避免错误状态
+  if (typeof switchLockTab === 'function') switchLockTab('unlock');
+}
+
+function switchLockTab(tab) {
+  const tabUnlock = document.getElementById('lock-tab-unlock');
+  const tabSync = document.getElementById('lock-tab-sync');
+  const pwdForm = document.getElementById('lock-pwd-form');
+  const syncForm = document.getElementById('lock-sync-form');
+  const activeCls = 'flex-1 py-2 text-xs font-medium rounded-xl bg-white shadow-sm text-gray-800 transition';
+  const inactiveCls = 'flex-1 py-2 text-xs font-medium rounded-xl text-gray-500 transition';
+  const errorEl = document.getElementById('lock-error');
+  if (errorEl) errorEl.classList.add('hidden');
+  const syncErr = document.getElementById('lock-sync-error');
+  if (syncErr) syncErr.classList.add('hidden');
+  if (!tabUnlock || !tabSync || !pwdForm || !syncForm) return;
+  if (tab === 'sync') {
+    tabUnlock.className = inactiveCls;
+    tabSync.className = activeCls;
+    pwdForm.classList.add('hidden');
+    syncForm.classList.remove('hidden');
+  } else {
+    tabUnlock.className = activeCls;
+    tabSync.className = inactiveCls;
+    pwdForm.classList.remove('hidden');
+    syncForm.classList.add('hidden');
+  }
+}
+
+function handleImportSync() {
+  const errorEl = document.getElementById('lock-sync-error');
+  errorEl.classList.add('hidden');
+  const raw = (document.getElementById('lock-sync-input').value || '').trim();
+  if (!raw) {
+    errorEl.textContent = '请粘贴同步码';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  // 规整：去掉空白、破折号、转小写
+  const normalized = raw.replace(/[\s\-]/g, '').toLowerCase();
+  // 校验：64 位 SHA-256 十六进制
+  if (!/^[0-9a-f]{64}$/.test(normalized)) {
+    errorEl.textContent = '同步码格式不正确，请检查后重试';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  localStorage.setItem(pwdKey, normalized);
+  document.getElementById('lock-sync-input').value = '';
+  switchLockTab('unlock');
+  initLockScreen();
+  unlockApp();
+}
+
+async function handleLock() {
+  const errorEl = document.getElementById('lock-error');
+  errorEl.classList.add('hidden');
+  const hasPwd = localStorage.getItem(pwdKey);
+  if (hasPwd) {
+    // Verify password
+    const pwd = document.getElementById('lock-pwd').value;
+    if (!pwd) { errorEl.textContent = '请输入密码'; errorEl.classList.remove('hidden'); return; }
+    const hash = await sha256(pwd);
+    if (hash === hasPwd) {
+      unlockApp();
+    } else {
+      errorEl.textContent = '密码错误，请重新输入';
+      errorEl.classList.remove('hidden');
+      document.getElementById('lock-pwd').value = '';
+    }
+  } else {
+    // Set new password
+    const newPwd = document.getElementById('lock-new-pwd').value;
+    const confirmPwd = document.getElementById('lock-confirm-pwd').value;
+    if (newPwd.length < 4) { errorEl.textContent = '密码至少4位'; errorEl.classList.remove('hidden'); return; }
+    if (newPwd !== confirmPwd) { errorEl.textContent = '两次密码不一致'; errorEl.classList.remove('hidden'); return; }
+    const hash = await sha256(newPwd);
+    localStorage.setItem(pwdKey, hash);
+    unlockApp();
+  }
+}
+
+function unlockApp() {
+  document.getElementById('lock-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  render();
+  // Sunday summary after unlock
+  if (isSunday()) {
+    const lastShown = localStorage.getItem('dora_weeksummary_lastshown');
+    const today = new Date().toDateString();
+    if (lastShown !== today) {
+      showWeekSummaryModal();
+      localStorage.setItem('dora_weeksummary_lastshown', today);
+    }
+  }
+}
+
+async function openChangePwdModal() {
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
+      <h3 class="text-lg font-bold text-gray-800 mb-4 text-center">密码设置</h3>
+      <div class="space-y-3">
+        <input id="cpwd-old" type="password" placeholder="当前密码" class="lock-input w-full px-4 py-2.5 text-sm">
+        <input id="cpwd-new" type="password" placeholder="新密码（至少4位）" class="lock-input w-full px-4 py-2.5 text-sm">
+        <input id="cpwd-confirm" type="password" placeholder="确认新密码" class="lock-input w-full px-4 py-2.5 text-sm">
+      </div>
+      <p id="cpwd-error" class="text-red-500 text-xs text-center mt-2 hidden"></p>
+      <div class="flex gap-3 mt-5">
+        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">取消</button>
+        <button onclick="changePwd()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">确认修改</button>
+      </div>
+      <div class="mt-4 pt-4 border-t border-gray-100">
+        <button onclick="showSyncCodeModal()" class="w-full py-2.5 rounded-xl bg-amber-50 text-amber-700 text-sm font-medium flex items-center justify-center gap-2">
+          <span>📲</span><span>同步到其他设备</span>
+        </button>
+        <p class="text-[11px] text-gray-400 text-center mt-2">把当前密码同步到手机、电脑等其它设备</p>
+      </div>
+    </div>
+  `);
+}
+
+function showSyncCodeModal() {
+  const hash = localStorage.getItem(pwdKey);
+  if (!hash) { closeModal(); return; }
+  const syncCode = hash.toUpperCase().match(/.{1,4}/g).join('-');
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
+      <div class="text-center mb-4">
+        <div class="text-3xl mb-2">📲</div>
+        <h3 class="text-lg font-bold text-gray-800">同步到其他设备</h3>
+        <p class="text-xs text-gray-500 mt-1 leading-relaxed px-2">在另一台设备的锁屏界面切换到「同步导入」，把下面的同步码粘贴过去即可</p>
+      </div>
+      <div class="bg-amber-50 rounded-2xl p-4 mb-3 border border-amber-100">
+        <div id="sync-code-display" class="font-mono text-[13px] text-gray-700 text-center leading-relaxed select-all" style="word-break: break-all;">${syncCode}</div>
+      </div>
+      <p class="text-[11px] text-center text-gray-400 mb-3">点击代码区域也可全选</p>
+      <div class="flex gap-3">
+        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">关闭</button>
+        <button id="sync-code-copy-btn" onclick="copySyncCode()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">复制同步码</button>
+      </div>
+      <p class="text-[11px] text-gray-300 text-center mt-4 leading-relaxed">
+        ⚠️ 同步码等价于密码本身，请妥善保管，不要分享给他人
+      </p>
+    </div>
+  `);
+}
+
+async function copySyncCode() {
+  const el = document.getElementById('sync-code-display');
+  if (!el) return;
+  const text = el.textContent || '';
+  const btn = document.getElementById('sync-code-copy-btn');
+  const setFeedback = (msg) => {
+    if (!btn) return;
+    const orig = btn.textContent;
+    btn.textContent = msg;
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      // 老浏览器 fallback
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (_) {}
+      document.body.removeChild(ta);
+    }
+    setFeedback('已复制 ✓');
+  } catch (e) {
+    setFeedback('复制失败，请手动选择');
+  }
+}
+
+async function changePwd() {
+  const errEl = document.getElementById('cpwd-error');
+  errEl.classList.add('hidden');
+  const oldPwd = document.getElementById('cpwd-old').value;
+  const newPwd = document.getElementById('cpwd-new').value;
+  const confirmPwd = document.getElementById('cpwd-confirm').value;
+  const currentHash = localStorage.getItem(pwdKey);
+  const oldHash = await sha256(oldPwd);
+  if (oldHash !== currentHash) { errEl.textContent = '当前密码错误'; errEl.classList.remove('hidden'); return; }
+  if (newPwd.length < 4) { errEl.textContent = '新密码至少4位'; errEl.classList.remove('hidden'); return; }
+  if (newPwd !== confirmPwd) { errEl.textContent = '两次密码不一致'; errEl.classList.remove('hidden'); return; }
+  const newHash = await sha256(newPwd);
+  localStorage.setItem(pwdKey, newHash);
+  closeModal();
+  alert('密码修改成功');
+}
+
+// Allow Enter key on lock screen
+document.getElementById('lock-pwd').addEventListener('keydown', e => { if (e.key === 'Enter') handleLock(); });
+document.getElementById('lock-new-pwd').addEventListener('keydown', e => { if (e.key === 'Enter') handleLock(); });
+document.getElementById('lock-confirm-pwd').addEventListener('keydown', e => { if (e.key === 'Enter') handleLock(); });
+document.getElementById('lock-sync-input').addEventListener('keydown', e => {
+  // Enter (without Shift) 直接提交；Shift+Enter 允许换行
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleImportSync(); }
+});
+
+initLockScreen();
+// If no password set, auto-check is done inside handleLock; if password exists, wait for user input
+
 /* =============== State =============== */
 const storeKey = 'dora_workbench_v1';
 let state = loadState();
@@ -494,7 +793,7 @@ function financeCard(f) {
         </div>
         <span class="text-lg font-bold ${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">${sign}${pnl.toFixed(2)}</span>
       </div>
-      <div class="grid grid-cols-2 gap-2 mt-3 text-xs text-gray-600">
+      <div class="grid grid-cols-2 fin-grid gap-2 mt-3 text-xs text-gray-600">
         <div class="bg-gray-50 rounded-lg p-2">买入价 <span class="font-semibold">${f.buy}</span></div>
         <div class="bg-gray-50 rounded-lg p-2">卖出价 <span class="font-semibold">${f.sell || '-'}</span></div>
         <div class="bg-gray-50 rounded-lg p-2">数量 <span class="font-semibold">${f.qty}</span></div>
@@ -606,17 +905,8 @@ function render() {
 document.getElementById('modal').addEventListener('click', e => {
   if (e.target.id === 'modal') closeModal();
 });
-render();
-
-// 每周日自动弹出总结
-if (isSunday()) {
-  const lastShown = localStorage.getItem('dora_weeksummary_lastshown');
-  const today = new Date().toDateString();
-  if (lastShown !== today) {
-    showWeekSummaryModal();
-    localStorage.setItem('dora_weeksummary_lastshown', today);
-  }
-}
+// render() is called in unlockApp() after password verified
+// Sunday summary is also triggered in unlockApp()
 
 // Service Worker 注册（支持离线访问）
 if ('serviceWorker' in navigator) {
