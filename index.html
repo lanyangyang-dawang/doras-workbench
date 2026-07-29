@@ -7,6 +7,7 @@
   <link rel="manifest" href="manifest.json">
   <title>Dora's 工作台</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
   <style>
@@ -206,26 +207,6 @@ function weekDateKeys() {
 function initApp() {
   checkDailyReset();
   switchPage('tasks');
-  requestNotificationPermission();
-  setInterval(checkReminders, 30000);
-  checkReminders();
-}
-
-function requestNotificationPermission() {
-  if ('Notification' in window && Notification.permission === 'default') {
-    Notification.requestPermission();
-  }
-}
-
-function checkReminders() {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  const now = new Date();
-  const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  state.tasks.forEach(t => {
-    if (!t.done && t.reminder && t.reminder === timeStr) {
-      new Notification('Dora\'s 工作台', { body: t.title });
-    }
-  });
 }
 
 function checkDailyReset() {
@@ -367,7 +348,19 @@ function addTask() {
 function toggleTask(id) {
   const t = state.tasks.find(x => x.id === id);
   if (!t) return;
+  const today = todayKey();
   t.done = !t.done;
+  if (t.done) {
+    if (!state.taskHistory[t.id]) state.taskHistory[t.id] = [];
+    if (!state.taskHistory[t.id].includes(today)) {
+      state.taskHistory[t.id].push(today);
+      if (state.taskHistory[t.id].length > 7) state.taskHistory[t.id].shift();
+    }
+  } else {
+    if (state.taskHistory[t.id]) {
+      state.taskHistory[t.id] = state.taskHistory[t.id].filter(d => d !== today);
+    }
+  }
   saveState();
   render();
 }
@@ -1141,15 +1134,25 @@ function openDataSyncModal() {
   `);
 }
 
-function showExportModal() {
-  const data = JSON.stringify(state);
-  // 使用 LZString 压缩（如果可用），否则直接用 base64
-  let exportText;
-  if (typeof LZString !== 'undefined') {
-    exportText = LZString.compressToBase64(data);
-  } else {
-    exportText = btoa(unescape(encodeURIComponent(data)));
+function compressState(data, includeImages = true) {
+  const payload = includeImages ? data : JSON.parse(data);
+  if (!includeImages && Array.isArray(payload.notes)) {
+    payload.notes = payload.notes.map(n => ({ ...n, image: undefined }));
   }
+  const json = JSON.stringify(payload);
+  if (typeof pako !== 'undefined') {
+    const compressed = pako.deflate(json, { level: 9 });
+    return btoa(String.fromCharCode(...compressed));
+  }
+  if (typeof LZString !== 'undefined') {
+    return LZString.compressToBase64(json);
+  }
+  return btoa(unescape(encodeURIComponent(json)));
+}
+
+function showExportModal() {
+  const fullCode = compressState(JSON.stringify(state), true);
+  const liteCode = compressState(JSON.stringify(state), false);
   showModal(`
     <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
       <div class="text-center mb-4">
@@ -1157,8 +1160,13 @@ function showExportModal() {
         <h3 class="text-lg font-bold text-gray-800">导出数据</h3>
         <p class="text-xs text-gray-500 mt-1">复制下面的数据码，在另一台设备点「导入数据」粘贴即可</p>
       </div>
-      <textarea id="export-text" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-[11px] h-32 resize-none select-all" readonly>${exportText}</textarea>
-      <p class="text-[11px] text-gray-400 mt-2">点击文本框可全选，含图片时数据会比较长</p>
+      <div class="flex gap-2 mb-3">
+        <button id="export-tab-full" onclick="switchExportTab('full')" class="flex-1 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-medium">完整版（含图片）</button>
+        <button id="export-tab-lite" onclick="switchExportTab('lite')" class="flex-1 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-medium">精简版（不含图片）</button>
+      </div>
+      <textarea id="export-text-full" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-[11px] h-32 resize-none select-all" readonly>${fullCode}</textarea>
+      <textarea id="export-text-lite" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-[11px] h-32 resize-none select-all hidden" readonly>${liteCode}</textarea>
+      <p class="text-[11px] text-gray-400 mt-2" id="export-hint">完整版包含图片，数据码会较长</p>
       <div class="flex gap-3 mt-4">
         <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">关闭</button>
         <button onclick="copyExportData()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">复制数据码</button>
@@ -1167,8 +1175,33 @@ function showExportModal() {
   `);
 }
 
+let currentExportTab = 'full';
+function switchExportTab(tab) {
+  currentExportTab = tab;
+  const fullTa = document.getElementById('export-text-full');
+  const liteTa = document.getElementById('export-text-lite');
+  const fullBtn = document.getElementById('export-tab-full');
+  const liteBtn = document.getElementById('export-tab-lite');
+  const hint = document.getElementById('export-hint');
+  const activeCls = 'flex-1 py-2 rounded-xl bg-gray-800 text-white text-xs font-medium';
+  const inactiveCls = 'flex-1 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-medium';
+  if (tab === 'lite') {
+    if (fullTa) fullTa.classList.add('hidden');
+    if (liteTa) liteTa.classList.remove('hidden');
+    if (fullBtn) fullBtn.className = inactiveCls;
+    if (liteBtn) liteBtn.className = activeCls;
+    if (hint) hint.textContent = '精简版已去掉图片，数据码更短，适合只同步文字数据';
+  } else {
+    if (fullTa) fullTa.classList.remove('hidden');
+    if (liteTa) liteTa.classList.add('hidden');
+    if (fullBtn) fullBtn.className = activeCls;
+    if (liteBtn) liteBtn.className = inactiveCls;
+    if (hint) hint.textContent = '完整版包含图片，数据码会较长';
+  }
+}
+
 async function copyExportData() {
-  const el = document.getElementById('export-text');
+  const el = document.getElementById(currentExportTab === 'lite' ? 'export-text-lite' : 'export-text-full');
   if (!el) return;
   try {
     await copyText(el.value);
@@ -1209,23 +1242,37 @@ function importData() {
     err.classList.remove('hidden');
     return;
   }
+  let jsonStr;
+  try {
+    // 1. 尝试 pako（zlib/deflate）解压
+    if (typeof pako !== 'undefined') {
+      try {
+        const binary = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+        const inflated = pako.inflate(binary, { to: 'string' });
+        jsonStr = inflated;
+      } catch (_) {}
+    }
+    // 2. 尝试 LZString 解压（兼容旧版导出）
+    if (!jsonStr && typeof LZString !== 'undefined') {
+      jsonStr = LZString.decompressFromBase64(raw);
+    }
+    // 3. 直接解析 JSON（兼容未压缩）
+    if (!jsonStr) {
+      JSON.parse(raw);
+      jsonStr = raw;
+    }
+  } catch (e) {
+    err.textContent = '数据码格式不正确，请检查后重试';
+    err.classList.remove('hidden');
+    return;
+  }
   let data;
   try {
-    // 先尝试 LZString 解压
-    if (typeof LZString !== 'undefined') {
-      data = JSON.parse(LZString.decompressFromBase64(raw));
-    } else {
-      data = JSON.parse(decodeURIComponent(escape(atob(raw))));
-    }
-  } catch (e1) {
-    // 降级：尝试直接解析 JSON
-    try {
-      data = JSON.parse(raw);
-    } catch (e2) {
-      err.textContent = '数据码格式不正确，请检查后重试';
-      err.classList.remove('hidden');
-      return;
-    }
+    data = JSON.parse(jsonStr);
+  } catch (e) {
+    err.textContent = '数据码解析失败，请检查后重试';
+    err.classList.remove('hidden');
+    return;
   }
   if (!confirm('导入后当前设备的数据会被替换，确认继续？')) return;
   // 用默认值兜底缺失字段
