@@ -90,12 +90,56 @@ function loadState() {
       { id: 4, title: '英语口语', desc: '每日口语练习', reminder: '21:02', done: false }
     ],
     notes: [],
-    finance: []
+    finance: [],
+    taskHistory: {},
+    lastVisitDate: ''
   };
   if (!raw) return defaults;
-  try { return { ...defaults, ...JSON.parse(raw) }; } catch { return defaults; }
+  try {
+    const parsed = { ...defaults, ...JSON.parse(raw) };
+    parsed.taskHistory = parsed.taskHistory || {};
+    parsed.lastVisitDate = parsed.lastVisitDate || '';
+    return parsed;
+  } catch { return defaults; }
 }
 function saveState() { localStorage.setItem(storeKey, JSON.stringify(state)); }
+
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function weekDateKeys() {
+  const now = new Date();
+  const day = now.getDay() || 7;
+  const mon = new Date(now);
+  mon.setDate(now.getDate() - day + 1);
+  const keys = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(mon);
+    d.setDate(mon.getDate() + i);
+    keys.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+  }
+  return keys;
+}
+
+function weekCount(taskId) {
+  const keys = weekDateKeys();
+  return keys.reduce((sum, k) => {
+    if (state.taskHistory[k] && state.taskHistory[k][taskId]) return sum + 1;
+    return sum;
+  }, 0);
+}
+
+function resetDailyIfNeeded() {
+  const today = todayKey();
+  if (state.lastVisitDate !== today) {
+    state.tasks.forEach(t => { t.done = false; });
+    state.lastVisitDate = today;
+    saveState();
+  }
+}
+resetDailyIfNeeded();
 
 let currentPage = 'tasks';
 
@@ -162,15 +206,18 @@ function renderTasks() {
         <span class="text-xs text-gray-400">${weekRange()}</span>
       </div>
       <div class="space-y-2">
-        ${state.tasks.map(t => `
+        ${state.tasks.map(t => {
+          const c = weekCount(t.id);
+          return `
           <div class="flex items-center justify-between text-sm">
             <span class="text-gray-700">${t.title}</span>
-            <span class="font-medium ${t.done ? 'text-green-500' : 'text-amber-500'}">${t.done ? '1/1' : '0/1'}</span>
+            <span class="font-medium ${c > 0 ? 'text-green-500' : 'text-amber-500'}">${c}/7</span>
           </div>
-        `).join('')}
+          `;
+        }).join('')}
       </div>
       <div class="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
-        <span class="text-sm text-gray-500">总进度</span>
+        <span class="text-sm text-gray-500">今日进度</span>
         <span class="text-lg font-bold text-gray-800">${total ? Math.round((total-pending)/total*100) : 0}%</span>
       </div>
     </div>
@@ -180,8 +227,16 @@ function renderTasks() {
 
 function showWeekSummaryModal() {
   const total = state.tasks.length;
-  const completed = state.tasks.filter(t => t.done).length;
-  const rate = total ? Math.round(completed/total*100) : 0;
+  const weekKeys = weekDateKeys();
+  const today = todayKey();
+  const completedTotal = weekKeys.reduce((sum, k) => {
+    if (k > today) return sum;
+    if (!state.taskHistory[k]) return sum;
+    return sum + Object.keys(state.taskHistory[k]).length;
+  }, 0);
+  const daysSoFar = weekKeys.filter(k => k <= today).length;
+  const expected = total * daysSoFar;
+  const rate = expected ? Math.min(100, Math.round(completedTotal/expected*100)) : 0;
   showModal(`
     <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-6">
       <div class="text-center mb-5">
@@ -190,17 +245,21 @@ function showWeekSummaryModal() {
         <p class="text-xs text-gray-400 mt-1">${weekRange()}</p>
       </div>
       <div class="space-y-3 mb-5">
-        ${state.tasks.map(t => `
+        ${state.tasks.map(t => {
+          const c = weekCount(t.id);
+          return `
           <div class="flex items-center justify-between text-sm bg-gray-50 rounded-xl px-3 py-2">
             <span class="text-gray-700">${t.title}</span>
-            <span class="font-medium ${t.done ? 'text-green-500' : 'text-amber-500'}">${t.done ? '已完成' : '待完成'}</span>
+            <span class="font-medium ${c > 0 ? 'text-green-500' : 'text-amber-500'}">${c}/7 天</span>
           </div>
-        `).join('')}
+          `;
+        }).join('')}
       </div>
-      <div class="flex items-center justify-between bg-amber-50 rounded-2xl p-4 mb-5">
-        <span class="text-sm font-medium text-gray-700">总进度</span>
+      <div class="flex items-center justify-between bg-amber-50 rounded-2xl p-4 mb-2">
+        <span class="text-sm font-medium text-gray-700">本周完成率</span>
         <span class="text-2xl font-bold text-gray-800">${rate}%</span>
       </div>
+      <p class="text-xs text-center text-gray-400 mb-5">本周已完成 ${completedTotal} 次 / 应完成 ${expected} 次</p>
       <button onclick="closeModal()" class="w-full py-3 rounded-xl btn-primary text-sm font-medium">知道了</button>
     </div>
   `);
@@ -243,7 +302,14 @@ function addTask() {
 }
 function toggleTask(id) {
   const t = state.tasks.find(x => x.id === id);
-  if (t) { t.done = !t.done; saveState(); render(); }
+  if (t) {
+    t.done = !t.done;
+    const k = todayKey();
+    if (!state.taskHistory[k]) state.taskHistory[k] = {};
+    if (t.done) state.taskHistory[k][id] = true;
+    else delete state.taskHistory[k][id];
+    saveState(); render();
+  }
 }
 function deleteTask(id) {
   if (confirm('确定删除这个任务吗？')) {
