@@ -7,6 +7,7 @@
   <link rel="manifest" href="manifest.json">
   <title>Dora's 工作台</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
   <style>
     body { font-family: 'Noto Sans SC', sans-serif; background: #F5F3EF; }
@@ -109,7 +110,10 @@
         <span class="nav-label text-[11px] sm:text-sm text-gray-700 font-medium">理财记录</span>
       </div>
     </div>
-    <div class="px-3 pb-2">
+    <div class="px-3 pb-2 flex flex-col gap-2">
+      <button onclick="openDataSyncModal()" class="w-full py-2 rounded-xl bg-blue-50 text-blue-700 text-[11px] font-medium flex items-center justify-center gap-1">
+        <span>🔄</span><span>数据同步</span>
+      </button>
       <button onclick="openChangePwdModal()" class="w-full py-2 rounded-xl bg-gray-100 text-gray-600 text-[11px] font-medium flex items-center justify-center gap-1">
         <span>🔒</span><span>修改密码</span>
       </button>
@@ -416,9 +420,18 @@ function deleteTask(id) {
   }
 }
 
+let noteSearchKeyword = '';
+
 /* =============== Study Notes =============== */
 function renderNotes() {
   const pending = state.notes.filter(n => !n.done).length;
+  const kw = noteSearchKeyword.trim().toLowerCase();
+  const filteredNotes = kw
+    ? state.notes.filter(n =>
+        (n.title || '').toLowerCase().includes(kw) ||
+        (n.content || '').toLowerCase().includes(kw) ||
+        (n.date || '').includes(kw))
+    : state.notes;
   return `
     <div class="mb-4 flex items-start justify-between">
       <div>
@@ -430,30 +443,45 @@ function renderNotes() {
         <div class="text-xs text-gray-400">待复习</div>
       </div>
     </div>
+    <div class="flex gap-2 mb-4">
+      <input id="note-search" type="text" placeholder="搜索笔记..." value="${escapeHtml(noteSearchKeyword)}" oninput="onNoteSearch(this.value)" class="flex-1 bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+      ${kw ? `<button onclick="clearNoteSearch()" class="px-3 rounded-xl bg-gray-200 text-gray-600 text-sm">清除</button>` : ''}
+    </div>
     <button onclick="openNoteModal()" class="btn-primary w-full py-3 text-sm font-medium mb-4 shadow-sm">+ 新建笔记</button>
     <div class="space-y-3">
-      ${
-        state.notes.length
-          ? state.notes.map(n => `
-            <div class="card p-4">
-              <div class="flex items-start justify-between gap-3">
-                <div class="flex-1">
-                  <div class="font-bold text-gray-800 ${n.done ? 'line-through text-gray-400' : ''}">${n.title}</div>
-                  <div class="text-xs text-gray-500 mt-1">${n.date}</div>
-                  <div class="text-sm text-gray-600 mt-2 leading-relaxed whitespace-pre-wrap">${n.content}</div>
-                </div>
-                <div class="flex flex-col items-end gap-2">
-                  <button onclick="toggleNoteDone(${n.id})" class="text-[11px] px-2 py-1 rounded-lg ${n.done ? 'status-done' : 'status-pending'}">${n.done ? '已掌握' : '待复习'}</button>
-                  <button onclick="openNoteModal(${n.id})" class="text-xs text-gray-600">编辑</button>
-                  <button onclick="deleteNote(${n.id})" class="text-xs text-red-500">删除</button>
-                </div>
+      ${filteredNotes.length
+        ? filteredNotes.map(n => `
+          <div class="card p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex-1">
+                <div class="font-bold text-gray-800 ${n.done ? 'line-through text-gray-400' : ''}">${n.title}</div>
+                <div class="text-xs text-gray-500 mt-1">${n.date}</div>
+                <div class="text-sm text-gray-600 mt-2 leading-relaxed whitespace-pre-wrap">${n.content}</div>
+                ${n.image ? `<img src="${n.image}" class="mt-3 rounded-xl max-h-56 object-cover w-full cursor-pointer" onclick="window.open('${n.image}')" alt="笔记图片">` : ''}
+              </div>
+              <div class="flex flex-col items-end gap-2">
+                <button onclick="toggleNoteDone(${n.id})" class="text-[11px] px-2 py-1 rounded-lg ${n.done ? 'status-done' : 'status-pending'}">${n.done ? '已掌握' : '待复习'}</button>
+                <button onclick="shareNote(${n.id})" class="text-xs text-blue-600">分享</button>
+                <button onclick="openNoteModal(${n.id})" class="text-xs text-gray-600">编辑</button>
+                <button onclick="deleteNote(${n.id})" class="text-xs text-red-500">删除</button>
               </div>
             </div>
-          `).join('')
-          : emptyState('还没有笔记')
+          </div>
+        `).join('')
+        : (kw ? `<div class="text-center py-12 text-gray-400 text-sm">没有找到匹配「${escapeHtml(noteSearchKeyword)}」的笔记</div>` : emptyState('还没有笔记'))
       }
     </div>
   `;
+}
+
+function onNoteSearch(value) {
+  noteSearchKeyword = value;
+  render();
+}
+
+function clearNoteSearch() {
+  noteSearchKeyword = '';
+  render();
 }
 
 function toggleNoteDone(id) {
@@ -461,9 +489,37 @@ function toggleNoteDone(id) {
   if (n) { n.done = !n.done; saveState(); render(); }
 }
 
+let pendingNoteImage = null;
+
+function noteImagePreviewHtml(src) {
+  return `<img src="${src}" class="h-24 rounded-lg object-cover border border-gray-200"><button type="button" onclick="removeNoteImage()" class="text-xs text-red-500 mt-1">删除图片</button>`;
+}
+
+function onNoteImageSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) { alert('图片不能超过 2MB'); input.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    pendingNoteImage = e.target.result;
+    const preview = document.getElementById('note-image-preview');
+    if (preview) preview.innerHTML = noteImagePreviewHtml(pendingNoteImage);
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeNoteImage() {
+  pendingNoteImage = null;
+  const input = document.getElementById('note-image-input');
+  if (input) input.value = '';
+  const preview = document.getElementById('note-image-preview');
+  if (preview) preview.innerHTML = '';
+}
+
 function openNoteModal(id = null) {
   editingNoteId = id;
   const n = id ? state.notes.find(x => x.id === id) : null;
+  pendingNoteImage = n ? (n.image || null) : null;
   const today = new Date().toISOString().slice(0,10);
   showModal(`
     <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
@@ -472,6 +528,11 @@ function openNoteModal(id = null) {
         <input id="note-title" type="text" placeholder="标题" value="${escapeHtml(n ? n.title : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
         <input id="note-date" type="date" value="${escapeHtml(n ? (n.date || today) : today)}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
         <textarea id="note-content" rows="5" placeholder="今天学到了什么..." class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm resize-none">${escapeHtml(n ? n.content : '')}</textarea>
+        <div>
+          <label class="text-xs text-gray-500 mb-1 block">图片</label>
+          <input id="note-image-input" type="file" accept="image/*" onchange="onNoteImageSelected(this)" class="w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:bg-gray-100 file:text-gray-700">
+          <div id="note-image-preview" class="mt-2 flex flex-col items-start">${pendingNoteImage ? noteImagePreviewHtml(pendingNoteImage) : ''}</div>
+        </div>
       </div>
       <div class="flex gap-3 mt-5">
         <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">取消</button>
@@ -485,13 +546,15 @@ function saveNote() {
   const title = document.getElementById('note-title').value.trim();
   const date = document.getElementById('note-date').value;
   const content = document.getElementById('note-content').value.trim();
+  const image = pendingNoteImage;
   if (!title) { alert('请填写标题'); return; }
   if (editingNoteId) {
     const n = state.notes.find(x => x.id === editingNoteId);
-    Object.assign(n, { title, date, content });
+    Object.assign(n, { title, date, content, image });
   } else {
-    state.notes.unshift({ id: Date.now(), title, date, content, done: false });
+    state.notes.unshift({ id: Date.now(), title, date, content, image, done: false });
   }
+  pendingNoteImage = null;
   saveState(); closeModal(); render();
 }
 
@@ -499,6 +562,46 @@ function deleteNote(id) {
   if (confirm('确定删除这条笔记吗？')) {
     state.notes = state.notes.filter(x => x.id !== id);
     saveState(); render();
+  }
+}
+
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy') ? resolve() : reject(new Error('copy failed')); }
+    catch (e) { reject(e); }
+    document.body.removeChild(ta);
+  });
+}
+
+async function shareNote(id) {
+  const n = state.notes.find(x => x.id === id);
+  if (!n) return;
+  const text = `${n.title}
+${n.date}
+
+${n.content}`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: n.title, text: text });
+      return;
+    } catch (e) {
+      if (e.name !== 'AbortError') console.error(e);
+    }
+  }
+  try {
+    await copyText(text);
+    alert('笔记内容已复制到剪贴板，可以粘贴分享了');
+  } catch (e) {
+    alert('分享失败，请手动复制');
   }
 }
 
@@ -1014,6 +1117,131 @@ function changePwd() {
       alert('密码已修改');
     });
   });
+}
+
+/* =============== Data Sync (Export / Import) =============== */
+function openDataSyncModal() {
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
+      <div class="text-center mb-4">
+        <div class="text-3xl mb-2">🔄</div>
+        <h3 class="text-lg font-bold text-gray-800">数据同步</h3>
+        <p class="text-xs text-gray-500 mt-1 leading-relaxed">导出数据到另一台设备，或从另一台设备导入数据</p>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="showExportModal()" class="flex-1 py-4 rounded-xl bg-blue-50 text-blue-700 text-sm font-medium flex flex-col items-center gap-1">
+          <span class="text-xl">📤</span><span>导出数据</span>
+        </button>
+        <button onclick="showImportModal()" class="flex-1 py-4 rounded-xl bg-green-50 text-green-700 text-sm font-medium flex flex-col items-center gap-1">
+          <span class="text-xl">📥</span><span>导入数据</span>
+        </button>
+      </div>
+      <button onclick="closeModal()" class="w-full mt-4 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">关闭</button>
+    </div>
+  `);
+}
+
+function showExportModal() {
+  const data = JSON.stringify(state);
+  // 使用 LZString 压缩（如果可用），否则直接用 base64
+  let exportText;
+  if (typeof LZString !== 'undefined') {
+    exportText = LZString.compressToBase64(data);
+  } else {
+    exportText = btoa(unescape(encodeURIComponent(data)));
+  }
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
+      <div class="text-center mb-4">
+        <div class="text-3xl mb-2">📤</div>
+        <h3 class="text-lg font-bold text-gray-800">导出数据</h3>
+        <p class="text-xs text-gray-500 mt-1">复制下面的数据码，在另一台设备点「导入数据」粘贴即可</p>
+      </div>
+      <textarea id="export-text" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-[11px] h-32 resize-none select-all" readonly>${exportText}</textarea>
+      <p class="text-[11px] text-gray-400 mt-2">点击文本框可全选，含图片时数据会比较长</p>
+      <div class="flex gap-3 mt-4">
+        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">关闭</button>
+        <button onclick="copyExportData()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">复制数据码</button>
+      </div>
+    </div>
+  `);
+}
+
+async function copyExportData() {
+  const el = document.getElementById('export-text');
+  if (!el) return;
+  try {
+    await copyText(el.value);
+    alert('数据码已复制到剪贴板，去另一台设备粘贴导入即可');
+  } catch (e) {
+    el.focus(); el.select();
+    alert('自动复制失败，请手动选择文本并复制');
+  }
+}
+
+function showImportModal() {
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
+      <div class="text-center mb-4">
+        <div class="text-3xl mb-2">📥</div>
+        <h3 class="text-lg font-bold text-gray-800">导入数据</h3>
+        <p class="text-xs text-gray-500 mt-1">粘贴从另一台设备导出的数据码</p>
+      </div>
+      <textarea id="import-text" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-[11px] h-32 resize-none" placeholder="在此粘贴数据码..."></textarea>
+      <p id="import-error" class="text-red-500 text-xs text-center mt-2 hidden"></p>
+      <div class="bg-amber-50 rounded-xl p-3 mt-3">
+        <p class="text-[11px] text-amber-700 leading-relaxed">⚠️ 导入后<strong>当前设备的数据会被替换</strong>，请确认另一台设备的数据是最新版本。建议先导出当前数据做备份。</p>
+      </div>
+      <div class="flex gap-3 mt-4">
+        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">取消</button>
+        <button onclick="importData()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">导入数据</button>
+      </div>
+    </div>
+  `);
+}
+
+function importData() {
+  const err = document.getElementById('import-error');
+  err.classList.add('hidden');
+  const raw = document.getElementById('import-text').value.trim();
+  if (!raw) {
+    err.textContent = '请粘贴数据码';
+    err.classList.remove('hidden');
+    return;
+  }
+  let data;
+  try {
+    // 先尝试 LZString 解压
+    if (typeof LZString !== 'undefined') {
+      data = JSON.parse(LZString.decompressFromBase64(raw));
+    } else {
+      data = JSON.parse(decodeURIComponent(escape(atob(raw))));
+    }
+  } catch (e1) {
+    // 降级：尝试直接解析 JSON
+    try {
+      data = JSON.parse(raw);
+    } catch (e2) {
+      err.textContent = '数据码格式不正确，请检查后重试';
+      err.classList.remove('hidden');
+      return;
+    }
+  }
+  if (!confirm('导入后当前设备的数据会被替换，确认继续？')) return;
+  // 用默认值兜底缺失字段
+  const defaults = {
+    tasks: [], notes: [], finance: [], taskHistory: {}, lastVisitDate: ''
+  };
+  state = { ...defaults, ...data };
+  if (!Array.isArray(state.tasks)) state.tasks = [];
+  if (!Array.isArray(state.notes)) state.notes = [];
+  if (!Array.isArray(state.finance)) state.finance = [];
+  if (!state.taskHistory) state.taskHistory = {};
+  state.finance.forEach(item => {
+    if (!item.sector && item.name) item.sector = item.name;
+  });
+  saveState(); closeModal(); render();
+  alert('数据导入成功！');
 }
 
 // Allow Enter key on lock screen
