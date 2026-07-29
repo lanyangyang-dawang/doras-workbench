@@ -133,6 +133,7 @@ const storeKey = 'dora_workbench_state';
 let state = loadState();
 let currentPage = 'tasks';
 let editingNoteId = null;
+let editingTaskId = null;
 
 /* =============== Safe Storage (兼容沙箱/隐私模式) =============== */
 let memoryStore = {};
@@ -278,50 +279,85 @@ function renderTasks() {
       </div>
     </div>
 
+    <div class="card p-4 mb-4">
+      <div class="flex items-center gap-2 mb-4">
+        <span class="text-xl">✅</span>
+        <span class="font-bold text-gray-800">今日待办清单</span>
+      </div>
+      <div class="space-y-3">
+        ${state.tasks.map(t => taskCard(t)).join('')}
+      </div>
+
+      <!-- 添加任务 -->
+      <div class="mt-4 pt-4 border-t border-gray-100">
+        <div class="space-y-3">
+          <input id="new-task-title" type="text" placeholder="任务名称..." class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+          <input id="new-task-desc" type="text" placeholder="任务内容（可选）" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+          <div class="flex gap-3">
+            <input id="new-task-reminder" type="time" class="flex-1 bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+            <button onclick="addTask()" class="px-5 rounded-xl btn-primary text-sm font-medium">添加</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="card p-4 mb-4 week-summary">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">
           <span class="text-xl">🏆</span>
-          <span class="font-bold text-gray-800">本周完成度</span>
+          <span class="font-bold text-gray-800">本周完成情况</span>
         </div>
         <span class="text-sm text-gray-500">${weekRange()}</span>
       </div>
-      <div class="flex justify-between items-end">
+      <div class="space-y-2">
         ${
-          weekDateKeys().map((k, idx) => {
-            const completed = Object.values(state.taskHistory).filter(arr => arr.includes(k)).length;
-            const pct = state.tasks.length ? (completed / state.tasks.length * 100) : 0;
+          state.tasks.map(t => {
+            const history = state.taskHistory[t.id] || [];
             return `
-              <div class="flex flex-col items-center gap-1 flex-1">
-                <div class="text-[10px] text-gray-400">${'一二三四五六日'[idx]}</div>
-                <div class="w-6 sm:w-8 bg-white rounded-full overflow-hidden" style="height: 60px;">
-                  <div class="bg-amber-400 w-full" style="height: ${pct}%;"></div>
-                </div>
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-700 ${t.done ? 'line-through text-gray-400' : ''}">${escapeHtml(t.title)}</span>
+                <span class="text-gray-500">${history.length}/7</span>
               </div>
             `;
           }).join('')
         }
       </div>
     </div>
-
-    <div class="space-y-3">
-      ${
-        state.tasks.map(t => `
-          <div class="card p-4 flex items-center gap-3">
-            <div class="checkbox ${t.done ? 'done' : ''}" onclick="toggleTask(${t.id})">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            </div>
-            <div class="flex-1">
-              <div class="font-bold text-gray-800 ${t.done ? 'line-through text-gray-400' : ''}">${t.title}</div>
-              <div class="text-xs text-gray-500 mt-0.5">${t.desc}</div>
-            </div>
-            <div class="text-[11px] px-2 py-1 rounded-lg ${t.done ? 'status-done' : 'status-pending'}">${t.done ? '已完成' : '待完成'}</div>
-          </div>
-        `).join('')
-      }
-    </div>
   `;
   return html;
+}
+
+function taskCard(t) {
+  return `
+    <div class="card p-3 flex items-center gap-3">
+      <div class="checkbox ${t.done ? 'done' : ''}" onclick="toggleTask(${t.id})">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="font-bold text-gray-800 ${t.done ? 'line-through text-gray-400' : ''}">${escapeHtml(t.title)}</div>
+        <div class="text-xs text-gray-500 mt-0.5 ${t.done ? 'line-through text-gray-400' : ''}">${escapeHtml(t.desc)}</div>
+        ${t.reminder ? `<div class="flex items-center gap-1 text-[11px] text-gray-400 mt-1"><span>⏰</span><span>${t.reminder}</span></div>` : ''}
+      </div>
+      <div class="flex flex-col items-end gap-2">
+        <div class="text-[11px] px-2 py-1 rounded-lg ${t.done ? 'status-done' : 'status-pending'}">${t.done ? '已完成' : '待完成'}</div>
+        <div class="flex gap-2">
+          <button onclick="openTaskModal(${t.id})" class="text-[11px] text-gray-500">编辑</button>
+          <button onclick="deleteTask(${t.id})" class="text-[11px] text-red-500">删除</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function addTask() {
+  const title = document.getElementById('new-task-title').value.trim();
+  const desc = document.getElementById('new-task-desc').value.trim();
+  const reminder = document.getElementById('new-task-reminder').value;
+  if (!title) { alert('请填写任务名称'); return; }
+  const id = state.tasks.length ? Math.max(...state.tasks.map(x => x.id)) + 1 : 1;
+  state.tasks.push({ id, title, desc, reminder, done: false });
+  saveState();
+  render();
 }
 
 function toggleTask(id) {
@@ -330,6 +366,54 @@ function toggleTask(id) {
   t.done = !t.done;
   saveState();
   render();
+}
+
+function openTaskModal(id = null) {
+  editingTaskId = id;
+  const t = id ? state.tasks.find(x => x.id === id) : null;
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
+      <h3 class="text-lg font-bold text-gray-800 mb-4 text-center">${id ? '编辑任务' : '新建任务'}</h3>
+      <div class="space-y-3">
+        <input id="task-title" type="text" placeholder="任务名称" value="${escapeHtml(t ? t.title : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+        <input id="task-desc" type="text" placeholder="任务内容" value="${escapeHtml(t ? t.desc : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+        <div>
+          <label class="text-xs text-gray-500 mb-1 block">提醒时间</label>
+          <input id="task-reminder" type="time" value="${escapeHtml(t ? t.reminder : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+        </div>
+      </div>
+      <p id="task-error" class="text-red-500 text-xs text-center mt-2 hidden"></p>
+      <div class="flex gap-3 mt-5">
+        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">取消</button>
+        <button onclick="saveTask()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">保存</button>
+      </div>
+    </div>
+  `);
+}
+
+function saveTask() {
+  const title = document.getElementById('task-title').value.trim();
+  const desc = document.getElementById('task-desc').value.trim();
+  const reminder = document.getElementById('task-reminder').value;
+  const err = document.getElementById('task-error');
+  err.classList.add('hidden');
+  if (!title) { err.textContent = '请填写任务名称'; err.classList.remove('hidden'); return; }
+  if (editingTaskId) {
+    const t = state.tasks.find(x => x.id === editingTaskId);
+    Object.assign(t, { title, desc, reminder });
+  } else {
+    const id = state.tasks.length ? Math.max(...state.tasks.map(x => x.id)) + 1 : 1;
+    state.tasks.push({ id, title, desc, reminder, done: false });
+  }
+  saveState(); closeModal(); render();
+}
+
+function deleteTask(id) {
+  if (confirm('确定删除这条任务吗？')) {
+    state.tasks = state.tasks.filter(x => x.id !== id);
+    delete state.taskHistory[id];
+    saveState(); render();
+  }
 }
 
 /* =============== Study Notes =============== */
