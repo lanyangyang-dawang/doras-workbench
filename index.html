@@ -34,24 +34,13 @@
     @keyframes bell-ring { 0%,100% { transform: rotate(0); } 10% { transform: rotate(8deg); } 20% { transform: rotate(-8deg); } 30% { transform: rotate(4deg); } 40% { transform: rotate(-4deg); } 50% { transform: rotate(0); } }
     .bell-ring { animation: bell-ring 1.2s ease-in-out infinite; }
     /* Lock screen */
-    .lock-screen { background: linear-gradient(135deg, #FFF8EC 0%, #F5F3EF 50%, #FFFFFF 100%); }
-    .lock-input { background: rgba(255,255,255,0.9); border: 2px solid #EBE8E3; border-radius: 16px; }
-    .lock-input:focus { border-color: #E6A23C; }
-    /* Desktop responsive */
-    @media (min-width: 768px) {
-      .sidebar { width: 200px; }
-      .nav-item { flex-direction: row; gap: 12px; padding: 12px 20px; margin: 4px 12px; border-radius: 16px; }
-      .nav-icon { width: 40px; height: 40px; font-size: 20px; }
-      .nav-label { font-size: 14px; }
-      .content-wrap { max-width: 800px; margin: 0 auto; }
-      .card { border-radius: 24px; }
-      .fin-grid { grid-template-columns: repeat(4, 1fr); }
-      .lock-avatar { width: 96px; height: 96px; }
-      .lock-title { font-size: 28px; }
-    }
+    .lock-screen { background: linear-gradient(180deg, #FFF8EC 0%, #F5F3EF 100%); }
+    .lock-input { background: rgba(255,255,255,0.85); border: 1px solid #EBE8E3; border-radius: 16px; color: #333; }
+    .lock-input::placeholder { color: #B0ABA3; }
   </style>
 </head>
-<body>
+<body class="text-gray-800">
+
 <!-- Lock Screen -->
 <div id="lock-screen" class="lock-screen fixed inset-0 z-[100] flex items-center justify-center">
   <div class="w-full max-w-[400px] px-6">
@@ -98,62 +87,629 @@
   </div>
 </div>
 
-<div id="app" class="app-shell flex hidden">
+<div id="app" class="app-shell hidden flex">
   <!-- Sidebar -->
-  <aside class="sidebar flex flex-col pt-4 pb-4">
-    <div class="flex flex-col items-center mb-4">
-      <img src="icon.jpg" class="w-12 h-12 rounded-full object-cover border-2 border-amber-100 shadow-sm" alt="Dora">
-      <span class="text-[10px] sm:text-sm text-gray-500 mt-2 font-medium">Dora's</span>
-      <span class="text-[10px] sm:text-sm text-gray-500 font-medium">工作台</span>
-    </div>
-    <nav class="flex-1 space-y-1">
+  <aside class="sidebar h-screen flex flex-col justify-between py-4">
+    <div>
+      <div class="text-center mb-6 px-2">
+        <img src="icon.jpg" class="w-12 h-12 rounded-full object-cover border-2 border-amber-100 shadow-sm mx-auto" alt="Dora">
+        <div class="text-xs font-bold text-gray-800 mt-2">Dora's</div>
+        <div class="text-[10px] text-gray-400">工作台</div>
+      </div>
       <div class="nav-item active" data-page="tasks" onclick="switchPage('tasks')">
-        <div class="nav-icon bg-amber-100">📋</div>
+        <div class="nav-icon bg-amber-50">📋</div>
         <span class="nav-label text-[11px] sm:text-sm text-gray-700 font-medium">每日任务</span>
       </div>
       <div class="nav-item" data-page="notes" onclick="switchPage('notes')">
-        <div class="nav-icon bg-blue-100">📝</div>
+        <div class="nav-icon bg-blue-50">📝</div>
         <span class="nav-label text-[11px] sm:text-sm text-gray-700 font-medium">学习笔记</span>
       </div>
       <div class="nav-item" data-page="finance" onclick="switchPage('finance')">
-        <div class="nav-icon bg-yellow-100">💰</div>
+        <div class="nav-icon bg-green-50">💰</div>
         <span class="nav-label text-[11px] sm:text-sm text-gray-700 font-medium">理财记录</span>
       </div>
-    </nav>
-    <div class="px-2 mt-2">
-      <button onclick="openChangePwdModal()" class="nav-item w-full text-gray-400 hover:text-gray-700">
-        <div class="nav-icon bg-gray-100 text-[16px]">🔒</div>
-        <span class="nav-label text-[11px] sm:text-sm text-gray-500 font-medium">修改密码</span>
+    </div>
+    <div class="px-3 pb-2">
+      <button onclick="openChangePwdModal()" class="w-full py-2 rounded-xl bg-gray-100 text-gray-600 text-[11px] font-medium flex items-center justify-center gap-1">
+        <span>🔒</span><span>修改密码</span>
       </button>
     </div>
   </aside>
 
-  <!-- Main -->
-  <main class="flex-1 flex flex-col h-screen overflow-hidden">
-    <!-- Header -->
-    <header class="px-4 pt-3 pb-2 flex items-center gap-3 bg-[#F5F3EF]">
-      <h1 class="text-lg font-bold text-gray-800">Dora's工作台</h1>
-    </header>
-
-    <!-- Content -->
-    <div id="content" class="flex-1 overflow-y-auto hide-scrollbar px-4 pb-24 content-wrap"></div>
+  <!-- Main Content -->
+  <main class="flex-1 h-screen overflow-y-auto hide-scrollbar">
+    <div id="content" class="content-wrap p-4 pb-24">
+      <!-- Dynamic content -->
+    </div>
   </main>
 </div>
 
-<!-- Modal container -->
-<div id="modal" class="fixed inset-0 z-50 hidden modal-overlay flex items-end justify-center sm:items-center"></div>
+<!-- Modal -->
+<div id="modal" class="modal-overlay fixed inset-0 z-[90] hidden flex items-end sm:items-center justify-center"></div>
 
 <script>
-/* =============== Password Lock =============== */
+/* =============== State =============== */
+const storeKey = 'dora_workbench_state';
+let state = loadState();
+let currentPage = 'tasks';
+let editingNoteId = null;
+
+/* =============== Safe Storage (兼容沙箱/隐私模式) =============== */
+let memoryStore = {};
+function safeGetItem(key) {
+  try { if (window.localStorage) return localStorage.getItem(key); } catch (e) {}
+  return memoryStore[key] || null;
+}
+function safeSetItem(key, value) {
+  try { if (window.localStorage) { localStorage.setItem(key, value); return; } } catch (e) {}
+  memoryStore[key] = value;
+}
+function safeRemoveItem(key) {
+  try { if (window.localStorage) { localStorage.removeItem(key); return; } } catch (e) {}
+  delete memoryStore[key];
+}
+
+function loadState() {
+  const raw = safeGetItem(storeKey);
+  const defaults = {
+    tasks: [
+      { id: 1, title: '作息', desc: '21:40入睡 → 6:40起床', reminder: '06:40', done: false },
+      { id: 2, title: '英语单词', desc: '每日词汇积累', reminder: '21:00', done: false },
+      { id: 3, title: '英语听力', desc: '每日听力训练', reminder: '21:01', done: false },
+      { id: 4, title: '英语口语', desc: '每日口语练习', reminder: '21:02', done: false }
+    ],
+    notes: [],
+    finance: [],
+    taskHistory: {},
+    lastVisitDate: ''
+  };
+  if (!raw) return defaults;
+  try {
+    const parsed = { ...defaults, ...JSON.parse(raw) };
+    parsed.taskHistory = parsed.taskHistory || {};
+    parsed.lastVisitDate = parsed.lastVisitDate || '';
+    // 兼容旧理财记录：没有 sector 字段的用 name 作为板块
+    if (Array.isArray(parsed.finance)) {
+      parsed.finance.forEach(item => {
+        if (!item.sector && item.name) item.sector = item.name;
+      });
+    }
+    return parsed;
+  } catch { return defaults; }
+}
+function saveState() { safeSetItem(storeKey, JSON.stringify(state)); }
+
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function weekDateKeys() {
+  const now = new Date();
+  const day = now.getDay() || 7;
+  const mon = new Date(now);
+  mon.setDate(now.getDate() - day + 1);
+  const keys = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(mon);
+    d.setDate(mon.getDate() + i);
+    keys.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+  }
+  return keys;
+}
+
+function initApp() {
+  checkDailyReset();
+  switchPage('tasks');
+  requestNotificationPermission();
+  setInterval(checkReminders, 30000);
+  checkReminders();
+}
+
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function checkReminders() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const now = new Date();
+  const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  state.tasks.forEach(t => {
+    if (!t.done && t.reminder && t.reminder === timeStr) {
+      new Notification('Dora\'s 工作台', { body: t.title });
+    }
+  });
+}
+
+function checkDailyReset() {
+  const today = todayKey();
+  if (state.lastVisitDate !== today) {
+    state.tasks.forEach(t => {
+      if (t.done) {
+        if (!state.taskHistory[t.id]) state.taskHistory[t.id] = [];
+        state.taskHistory[t.id].push(state.lastVisitDate || today);
+        if (state.taskHistory[t.id].length > 7) state.taskHistory[t.id].shift();
+      }
+      t.done = false;
+    });
+    state.lastVisitDate = today;
+    saveState();
+  }
+}
+
+function switchPage(page) {
+  currentPage = page;
+  currentSector = null;
+  viewingSectorDetail = false;
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+  render();
+}
+
+/* =============== Helpers =============== */
+const todayStr = () => new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+const weekRange = () => {
+  const now = new Date();
+  const day = now.getDay() || 7;
+  const mon = new Date(now); mon.setDate(now.getDate() - day + 1);
+  const sun = new Date(now); sun.setDate(now.getDate() + (7 - day));
+  const fmt = d => `${d.getMonth()+1}/${d.getDate()}`;
+  return `${fmt(mon)} - ${fmt(sun)}`;
+};
+const isSunday = () => new Date().getDay() === 0;
+
+/* =============== Daily Tasks =============== */
+function renderTasks() {
+  const pending = state.tasks.filter(t => !t.done).length;
+  const total = state.tasks.length;
+  const today = new Date();
+  const dateLabel = `${today.getMonth()+1}/${today.getDate()} 周${'日一二三四五六'[today.getDay()]}`;
+
+  let html = `
+    <div class="mb-4 flex items-start justify-between">
+      <div>
+        <h2 class="text-2xl font-bold text-gray-800">每日任务</h2>
+        <p class="text-sm text-gray-500 mt-1">今日待办 · ${dateLabel}</p>
+      </div>
+      <div class="text-right">
+        <div class="text-2xl font-bold text-gray-800">${pending}</div>
+        <div class="text-xs text-gray-400">剩余 ${total}</div>
+      </div>
+    </div>
+
+    <div class="card p-4 mb-4 week-summary">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🏆</span>
+          <span class="font-bold text-gray-800">本周完成度</span>
+        </div>
+        <span class="text-sm text-gray-500">${weekRange()}</span>
+      </div>
+      <div class="flex justify-between items-end">
+        ${
+          weekDateKeys().map((k, idx) => {
+            const completed = Object.values(state.taskHistory).filter(arr => arr.includes(k)).length;
+            const pct = state.tasks.length ? (completed / state.tasks.length * 100) : 0;
+            return `
+              <div class="flex flex-col items-center gap-1 flex-1">
+                <div class="text-[10px] text-gray-400">${'一二三四五六日'[idx]}</div>
+                <div class="w-6 sm:w-8 bg-white rounded-full overflow-hidden" style="height: 60px;">
+                  <div class="bg-amber-400 w-full" style="height: ${pct}%;"></div>
+                </div>
+              </div>
+            `;
+          }).join('')
+        }
+      </div>
+    </div>
+
+    <div class="space-y-3">
+      ${
+        state.tasks.map(t => `
+          <div class="card p-4 flex items-center gap-3">
+            <div class="checkbox ${t.done ? 'done' : ''}" onclick="toggleTask(${t.id})">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </div>
+            <div class="flex-1">
+              <div class="font-bold text-gray-800 ${t.done ? 'line-through text-gray-400' : ''}">${t.title}</div>
+              <div class="text-xs text-gray-500 mt-0.5">${t.desc}</div>
+            </div>
+            <div class="text-[11px] px-2 py-1 rounded-lg ${t.done ? 'status-done' : 'status-pending'}">${t.done ? '已完成' : '待完成'}</div>
+          </div>
+        `).join('')
+      }
+    </div>
+  `;
+  return html;
+}
+
+function toggleTask(id) {
+  const t = state.tasks.find(x => x.id === id);
+  if (!t) return;
+  t.done = !t.done;
+  saveState();
+  render();
+}
+
+/* =============== Study Notes =============== */
+function renderNotes() {
+  const pending = state.notes.filter(n => !n.done).length;
+  return `
+    <div class="mb-4 flex items-start justify-between">
+      <div>
+        <h2 class="text-2xl font-bold text-gray-800">学习笔记</h2>
+        <p class="text-sm text-gray-500 mt-1">记录每天学到的知识点</p>
+      </div>
+      <div class="text-right">
+        <div class="text-2xl font-bold text-gray-800">${pending}</div>
+        <div class="text-xs text-gray-400">待复习</div>
+      </div>
+    </div>
+    <button onclick="openNoteModal()" class="btn-primary w-full py-3 text-sm font-medium mb-4 shadow-sm">+ 新建笔记</button>
+    <div class="space-y-3">
+      ${
+        state.notes.length
+          ? state.notes.map(n => `
+            <div class="card p-4">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex-1">
+                  <div class="font-bold text-gray-800 ${n.done ? 'line-through text-gray-400' : ''}">${n.title}</div>
+                  <div class="text-xs text-gray-500 mt-1">${n.date}</div>
+                  <div class="text-sm text-gray-600 mt-2 leading-relaxed whitespace-pre-wrap">${n.content}</div>
+                </div>
+                <div class="flex flex-col items-end gap-2">
+                  <button onclick="toggleNoteDone(${n.id})" class="text-[11px] px-2 py-1 rounded-lg ${n.done ? 'status-done' : 'status-pending'}">${n.done ? '已掌握' : '待复习'}</button>
+                  <button onclick="openNoteModal(${n.id})" class="text-xs text-gray-600">编辑</button>
+                  <button onclick="deleteNote(${n.id})" class="text-xs text-red-500">删除</button>
+                </div>
+              </div>
+            </div>
+          `).join('')
+          : emptyState('还没有笔记')
+      }
+    </div>
+  `;
+}
+
+function toggleNoteDone(id) {
+  const n = state.notes.find(x => x.id === id);
+  if (n) { n.done = !n.done; saveState(); render(); }
+}
+
+function openNoteModal(id = null) {
+  editingNoteId = id;
+  const n = id ? state.notes.find(x => x.id === id) : null;
+  const today = new Date().toISOString().slice(0,10);
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
+      <h3 class="text-lg font-bold text-gray-800 mb-4 text-center">${id ? '编辑笔记' : '新建笔记'}</h3>
+      <div class="space-y-3">
+        <input id="note-title" type="text" placeholder="标题" value="${escapeHtml(n ? n.title : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+        <input id="note-date" type="date" value="${escapeHtml(n ? (n.date || today) : today)}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+        <textarea id="note-content" rows="5" placeholder="今天学到了什么..." class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm resize-none">${escapeHtml(n ? n.content : '')}</textarea>
+      </div>
+      <div class="flex gap-3 mt-5">
+        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">取消</button>
+        <button onclick="saveNote()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">保存</button>
+      </div>
+    </div>
+  `);
+}
+
+function saveNote() {
+  const title = document.getElementById('note-title').value.trim();
+  const date = document.getElementById('note-date').value;
+  const content = document.getElementById('note-content').value.trim();
+  if (!title) { alert('请填写标题'); return; }
+  if (editingNoteId) {
+    const n = state.notes.find(x => x.id === editingNoteId);
+    Object.assign(n, { title, date, content });
+  } else {
+    state.notes.unshift({ id: Date.now(), title, date, content, done: false });
+  }
+  saveState(); closeModal(); render();
+}
+
+function deleteNote(id) {
+  if (confirm('确定删除这条笔记吗？')) {
+    state.notes = state.notes.filter(x => x.id !== id);
+    saveState(); render();
+  }
+}
+
+/* =============== Finance =============== */
+function calcPnL(item) {
+  const buy = parseFloat(item.buy) || 0;
+  const sell = parseFloat(item.sell) || 0;
+  const qty = parseInt(item.qty) || 0;
+  const fee = parseFloat(item.fee) || 0;
+  if (!sell) return 0;
+  return (sell - buy) * qty - fee;
+}
+
+/* =============== Finance Helpers =============== */
+// 旧数据没有 sector 字段时，用 name 作为板块名做兼容
+function getSectorName(item) {
+  return (item.sector || item.name || '未分类').trim();
+}
+
+// 按日期倒序排（最新日期在最前）
+function sortByDateDesc(a, b) {
+  return new Date(b.date) - new Date(a.date);
+}
+
+function getSortedFinance() {
+  return [...state.finance].sort(sortByDateDesc);
+}
+
+// 按板块分组并计算总盈亏
+function groupBySector() {
+  const groups = {};
+  getSortedFinance().forEach(item => {
+    const sector = getSectorName(item);
+    if (!groups[sector]) {
+      groups[sector] = { sector, records: [], total: 0, latestDate: '' };
+    }
+    groups[sector].records.push(item);
+    groups[sector].total += calcPnL(item);
+    if (item.date && item.date > groups[sector].latestDate) {
+      groups[sector].latestDate = item.date;
+    }
+  });
+  // 板块按最新交易日期倒序排
+  return Object.values(groups).sort((a, b) => new Date(b.latestDate) - new Date(a.latestDate));
+}
+
+function getUniqueSectors() {
+  return [...new Set(state.finance.map(getSectorName).filter(Boolean))];
+}
+
+let currentSector = null;
+let viewingSectorDetail = false;
+
+function renderFinance() {
+  const total = state.finance.reduce((sum, i) => sum + calcPnL(i), 0);
+  const sign = total >= 0 ? '+' : '';
+  const sectors = groupBySector();
+  return `
+    <div class="mb-4">
+      <h2 class="text-2xl font-bold text-gray-800">理财记录</h2>
+      <p class="text-sm text-gray-500 mt-1">按板块追踪投资收益</p>
+    </div>
+    <div class="card p-4 mb-4 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="text-xl">📊</span>
+        <span class="font-bold text-gray-800">总盈亏</span>
+      </div>
+      <span class="text-2xl font-bold ${total >= 0 ? 'pnl-positive' : 'pnl-negative'}">${sign}${total.toFixed(2)}</span>
+    </div>
+    <button onclick="openFinanceModal()" class="btn-primary w-full py-3 text-sm font-medium mb-4 shadow-sm">+ 新建理财记录</button>
+    <div class="space-y-3">
+      ${sectors.length ? sectors.map(s => sectorCard(s)).join('') : emptyState('还没有理财记录')}
+    </div>
+  `;
+}
+
+function sectorCard(s) {
+  const sign = s.total >= 0 ? '+' : '';
+  return `
+    <div class="card p-4 cursor-pointer active:scale-[0.99] transition-transform" onclick="openSectorDetail('${escapeHtml(s.sector)}')">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="text-[15px] font-bold text-gray-800">${s.sector}</div>
+          <div class="text-xs text-gray-400 mt-0.5">${s.records.length} 条记录 · 最近 ${s.latestDate}</div>
+        </div>
+        <span class="text-lg font-bold ${s.total >= 0 ? 'pnl-positive' : 'pnl-negative'}">${sign}${s.total.toFixed(2)}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderSectorDetail(sector) {
+  const records = state.finance
+    .filter(i => getSectorName(i) === sector)
+    .sort(sortByDateDesc);
+  const total = records.reduce((sum, i) => sum + calcPnL(i), 0);
+  const sign = total >= 0 ? '+' : '';
+  return `
+    <div class="mb-4">
+      <button onclick="backToFinance()" class="text-sm text-gray-500 flex items-center gap-1 mb-2">
+        <span>←</span><span>返回理财记录</span>
+      </button>
+      <h2 class="text-2xl font-bold text-gray-800">${sector}</h2>
+      <p class="text-sm text-gray-500 mt-1">${records.length} 条交易记录</p>
+    </div>
+    <div class="card p-4 mb-4 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="text-xl">📈</span>
+        <span class="font-bold text-gray-800">板块总盈亏</span>
+      </div>
+      <span class="text-2xl font-bold ${total >= 0 ? 'pnl-positive' : 'pnl-negative'}">${sign}${total.toFixed(2)}</span>
+    </div>
+    <button onclick="openFinanceModal(null, '${escapeHtml(sector)}')" class="btn-primary w-full py-3 text-sm font-medium mb-4 shadow-sm">+ 新增该板块记录</button>
+    <div class="space-y-3">
+      ${records.length ? records.map(f => financeRecordCard(f)).join('') : emptyState('该板块还没有记录')}
+    </div>
+  `;
+}
+
+function backToFinance() {
+  currentSector = null;
+  viewingSectorDetail = false;
+  render();
+}
+
+function openSectorDetail(sector) {
+  currentSector = sector;
+  viewingSectorDetail = true;
+  render();
+}
+
+function financeRecordCard(f) {
+  const pnl = calcPnL(f);
+  const sign = pnl >= 0 ? '+' : '';
+  return `
+    <div class="card p-4">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="text-[15px] font-bold text-gray-800">${f.date}</div>
+          <div class="text-xs text-gray-500 mt-0.5">${f.name}</div>
+        </div>
+        <span class="text-lg font-bold ${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">${sign}${pnl.toFixed(2)}</span>
+      </div>
+      <div class="grid grid-cols-2 fin-grid gap-2 mt-3 text-xs text-gray-600">
+        <div class="bg-gray-50 rounded-lg p-2">买入价 <span class="font-semibold">${f.buy}</span></div>
+        <div class="bg-gray-50 rounded-lg p-2">卖出价 <span class="font-semibold">${f.sell || '-'}</span></div>
+        <div class="bg-gray-50 rounded-lg p-2">数量 <span class="font-semibold">${f.qty}</span></div>
+        <div class="bg-gray-50 rounded-lg p-2">手续费 <span class="font-semibold">${f.fee}</span></div>
+      </div>
+      <div class="flex gap-3 mt-3">
+        <button onclick="openFinanceModal(${f.id})" class="text-xs text-gray-600 font-medium">编辑</button>
+        <button onclick="deleteFinance(${f.id})" class="text-xs text-red-500 font-medium">删除</button>
+      </div>
+    </div>
+  `;
+}
+
+let editingFinanceId = null;
+function openFinanceModal(id = null, defaultSector = '') {
+  editingFinanceId = id;
+  const f = id ? state.finance.find(x => x.id === id) : null;
+  const today = new Date().toISOString().slice(0,10);
+  const sectors = getUniqueSectors();
+  const sectorValue = f ? getSectorName(f) : (defaultSector || (f ? f.name : ''));
+  const sectorDatalist = sectors.length ? `
+    <datalist id="sector-options">
+      ${sectors.map(s => `<option value="${escapeHtml(s)}">`).join('')}
+    </datalist>
+  ` : '';
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
+      <h3 class="text-lg font-bold text-gray-800 mb-4 text-center">${id ? '编辑理财记录' : '新建理财记录'}</h3>
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs text-gray-500 mb-1 block">日期</label>
+          <input id="fin-date" type="date" value="${escapeHtml(f ? (f.date || today) : today)}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 mb-1 block">板块名称 *</label>
+          <input id="fin-sector" type="text" list="sector-options" placeholder="例如：电池ETF" value="${escapeHtml(sectorValue)}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+          ${sectorDatalist}
+          <p class="text-[11px] text-gray-400 mt-1">可直接输入新板块，或从已有板块中选择</p>
+        </div>
+        <div>
+          <label class="text-xs text-gray-500 mb-1 block">股票/基金名称 *</label>
+          <input id="fin-name" type="text" placeholder="例如：广深铁路" value="${escapeHtml(f ? (f.name || '') : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">买入价 *</label>
+            <input id="fin-buy" type="number" step="0.01" placeholder="0.00" value="${escapeHtml(f ? (f.buy || '') : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">卖出价</label>
+            <input id="fin-sell" type="number" step="0.01" placeholder="选填" value="${escapeHtml(f ? (f.sell || '') : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">数量（股）*</label>
+            <input id="fin-qty" type="number" placeholder="0" value="${escapeHtml(f ? (f.qty || '') : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">手续费</label>
+            <input id="fin-fee" type="number" step="0.01" placeholder="0.00" value="${escapeHtml(f ? (f.fee || '') : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
+          </div>
+        </div>
+      </div>
+      <div class="flex gap-3 mt-5">
+        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">取消</button>
+        <button onclick="saveFinance()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">保存</button>
+      </div>
+    </div>
+  `);
+}
+
+function saveFinance() {
+  const item = {
+    date: document.getElementById('fin-date').value,
+    sector: document.getElementById('fin-sector').value.trim(),
+    name: document.getElementById('fin-name').value.trim(),
+    buy: document.getElementById('fin-buy').value,
+    sell: document.getElementById('fin-sell').value,
+    qty: document.getElementById('fin-qty').value,
+    fee: document.getElementById('fin-fee').value || '0'
+  };
+  if (!item.sector || !item.name || !item.buy || !item.qty) { alert('请填写必填项'); return; }
+  if (editingFinanceId) {
+    const f = state.finance.find(x => x.id === editingFinanceId);
+    Object.assign(f, item);
+  } else {
+    state.finance.push({ id: Date.now(), ...item });
+  }
+  saveState(); closeModal(); render();
+}
+
+function deleteFinance(id) {
+  if (confirm('确定删除这条记录吗？')) {
+    state.finance = state.finance.filter(x => x.id !== id);
+    saveState(); render();
+  }
+}
+
+/* =============== UI Utilities =============== */
+function emptyState(text) {
+  return `<div class="text-center py-12 text-gray-400 text-sm">${text}</div>`;
+}
+function showModal(content) {
+  const m = document.getElementById('modal');
+  m.innerHTML = content;
+  m.classList.remove('hidden');
+}
+function closeModal() {
+  document.getElementById('modal').classList.add('hidden');
+  document.getElementById('modal').innerHTML = '';
+}
+function escapeHtml(text) {
+  const div = document.createElement('div'); div.textContent = text; return div.innerHTML;
+}
+
+function render() {
+  const content = document.getElementById('content');
+  if (currentPage === 'tasks') content.innerHTML = renderTasks();
+  else if (currentPage === 'notes') content.innerHTML = renderNotes();
+  else if (currentPage === 'finance') {
+    content.innerHTML = viewingSectorDetail && currentSector ? renderSectorDetail(currentSector) : renderFinance();
+  }
+}
+
+/* =============== Lock Screen =============== */
 const pwdKey = 'dora_password_hash';
-async function sha256(str) {
-  const buf = new TextEncoder().encode(str);
-  const hash = await crypto.subtle.digest('SHA-256', buf);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+function simpleHash(pwd) {
+  // 降级方案：当 crypto.subtle 不可用时使用（如部分预览沙箱）
+  let h = 5381;
+  for (let i = 0; i < pwd.length; i++) h = ((h << 5) + h) + pwd.charCodeAt(i);
+  return Math.abs(h).toString(16).padStart(64, '0');
+}
+function hashPwd(pwd) {
+  const enc = new TextEncoder();
+  if (typeof crypto !== 'undefined' && crypto.subtle && crypto.subtle.digest) {
+    return crypto.subtle.digest('SHA-256', enc.encode(pwd)).then(buf => {
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    });
+  }
+  return Promise.resolve(simpleHash(pwd));
+}
+
+function unlockApp() {
+  document.getElementById('lock-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  initApp();
 }
 
 function initLockScreen() {
-  const hasPwd = localStorage.getItem(pwdKey);
+  const hasPwd = safeGetItem(pwdKey);
   const lockSet = document.getElementById('lock-set');
   const lockEnter = document.getElementById('lock-enter');
   const lockHint = document.getElementById('lock-hint');
@@ -215,53 +771,48 @@ function handleImportSync() {
     errorEl.classList.remove('hidden');
     return;
   }
-  localStorage.setItem(pwdKey, normalized);
+  safeSetItem(pwdKey, normalized);
   document.getElementById('lock-sync-input').value = '';
   switchLockTab('unlock');
   initLockScreen();
   unlockApp();
 }
 
-async function handleLock() {
-  const errorEl = document.getElementById('lock-error');
-  errorEl.classList.add('hidden');
-  const hasPwd = localStorage.getItem(pwdKey);
-  if (hasPwd) {
-    // Verify password
-    const pwd = document.getElementById('lock-pwd').value;
-    if (!pwd) { errorEl.textContent = '请输入密码'; errorEl.classList.remove('hidden'); return; }
-    const hash = await sha256(pwd);
-    if (hash === hasPwd) {
-      unlockApp();
-    } else {
-      errorEl.textContent = '密码错误，请重新输入';
-      errorEl.classList.remove('hidden');
-      document.getElementById('lock-pwd').value = '';
-    }
-  } else {
-    // Set new password
-    const newPwd = document.getElementById('lock-new-pwd').value;
-    const confirmPwd = document.getElementById('lock-confirm-pwd').value;
-    if (newPwd.length < 4) { errorEl.textContent = '密码至少4位'; errorEl.classList.remove('hidden'); return; }
-    if (newPwd !== confirmPwd) { errorEl.textContent = '两次密码不一致'; errorEl.classList.remove('hidden'); return; }
-    const hash = await sha256(newPwd);
-    localStorage.setItem(pwdKey, hash);
-    unlockApp();
-  }
+function setLockLoading(loading) {
+  const btn = document.getElementById('lock-btn');
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.dataset.origText = btn.dataset.origText || btn.textContent;
+  btn.textContent = loading ? '请稍候...' : btn.dataset.origText;
 }
 
-function unlockApp() {
-  document.getElementById('lock-screen').classList.add('hidden');
-  document.getElementById('app').classList.remove('hidden');
-  render();
-  // Sunday summary after unlock
-  if (isSunday()) {
-    const lastShown = localStorage.getItem('dora_weeksummary_lastshown');
-    const today = new Date().toDateString();
-    if (lastShown !== today) {
-      showWeekSummaryModal();
-      localStorage.setItem('dora_weeksummary_lastshown', today);
-    }
+function handleLock() {
+  const hasPwd = safeGetItem(pwdKey);
+  const errorEl = document.getElementById('lock-error');
+  errorEl.classList.add('hidden');
+  setLockLoading(true);
+  if (hasPwd) {
+    const input = document.getElementById('lock-pwd').value;
+    if (!input) { errorEl.textContent = '请输入密码'; errorEl.classList.remove('hidden'); setLockLoading(false); return; }
+    hashPwd(input).then(hash => {
+      if (hash === hasPwd) { unlockApp(); }
+      else { errorEl.textContent = '密码错误'; errorEl.classList.remove('hidden'); setLockLoading(false); }
+    }).catch(e => {
+      errorEl.textContent = '解锁出错，请重试'; errorEl.classList.remove('hidden');
+      console.error(e); setLockLoading(false);
+    });
+  } else {
+    const newPwd = document.getElementById('lock-new-pwd').value;
+    const confirmPwd = document.getElementById('lock-confirm-pwd').value;
+    if (!newPwd || newPwd.length < 4) { errorEl.textContent = '密码至少4位'; errorEl.classList.remove('hidden'); setLockLoading(false); return; }
+    if (newPwd !== confirmPwd) { errorEl.textContent = '两次输入不一致'; errorEl.classList.remove('hidden'); setLockLoading(false); return; }
+    hashPwd(newPwd).then(hash => {
+      safeSetItem(pwdKey, hash);
+      unlockApp();
+    }).catch(e => {
+      errorEl.textContent = '设置出错，请重试'; errorEl.classList.remove('hidden');
+      console.error(e); setLockLoading(false);
+    });
   }
 }
 
@@ -290,7 +841,7 @@ async function openChangePwdModal() {
 }
 
 function showSyncCodeModal() {
-  const hash = localStorage.getItem(pwdKey);
+  const hash = safeGetItem(pwdKey);
   if (!hash) { closeModal(); return; }
   const syncCode = hash.toUpperCase().match(/.{1,4}/g).join('-');
   showModal(`
@@ -346,21 +897,39 @@ async function copySyncCode() {
   }
 }
 
-async function changePwd() {
-  const errEl = document.getElementById('cpwd-error');
-  errEl.classList.add('hidden');
+function changePwd() {
   const oldPwd = document.getElementById('cpwd-old').value;
   const newPwd = document.getElementById('cpwd-new').value;
   const confirmPwd = document.getElementById('cpwd-confirm').value;
-  const currentHash = localStorage.getItem(pwdKey);
-  const oldHash = await sha256(oldPwd);
-  if (oldHash !== currentHash) { errEl.textContent = '当前密码错误'; errEl.classList.remove('hidden'); return; }
-  if (newPwd.length < 4) { errEl.textContent = '新密码至少4位'; errEl.classList.remove('hidden'); return; }
-  if (newPwd !== confirmPwd) { errEl.textContent = '两次密码不一致'; errEl.classList.remove('hidden'); return; }
-  const newHash = await sha256(newPwd);
-  localStorage.setItem(pwdKey, newHash);
-  closeModal();
-  alert('密码修改成功');
+  const err = document.getElementById('cpwd-error');
+  err.classList.add('hidden');
+  if (!oldPwd || !newPwd || !confirmPwd) {
+    err.textContent = '请填写所有项';
+    err.classList.remove('hidden');
+    return;
+  }
+  if (newPwd.length < 4) {
+    err.textContent = '新密码至少4位';
+    err.classList.remove('hidden');
+    return;
+  }
+  if (newPwd !== confirmPwd) {
+    err.textContent = '两次输入不一致';
+    err.classList.remove('hidden');
+    return;
+  }
+  hashPwd(oldPwd).then(oldHash => {
+    if (oldHash !== safeGetItem(pwdKey)) {
+      err.textContent = '当前密码错误';
+      err.classList.remove('hidden');
+      return;
+    }
+    hashPwd(newPwd).then(newHash => {
+      safeSetItem(pwdKey, newHash);
+      closeModal();
+      alert('密码已修改');
+    });
+  });
 }
 
 // Allow Enter key on lock screen
@@ -372,646 +941,8 @@ document.getElementById('lock-sync-input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleImportSync(); }
 });
 
+/* Init */
 initLockScreen();
-// If no password set, auto-check is done inside handleLock; if password exists, wait for user input
-
-/* =============== State =============== */
-const storeKey = 'dora_workbench_v1';
-let state = loadState();
-
-function loadState() {
-  const raw = localStorage.getItem(storeKey);
-  const defaults = {
-    tasks: [
-      { id: 1, title: '作息', desc: '21:40入睡 → 6:40起床', reminder: '06:40', done: false },
-      { id: 2, title: '英语单词', desc: '每日词汇积累', reminder: '21:00', done: false },
-      { id: 3, title: '英语听力', desc: '每日听力训练', reminder: '21:01', done: false },
-      { id: 4, title: '英语口语', desc: '每日口语练习', reminder: '21:02', done: false }
-    ],
-    notes: [],
-    finance: [],
-    taskHistory: {},
-    lastVisitDate: ''
-  };
-  if (!raw) return defaults;
-  try {
-    const parsed = { ...defaults, ...JSON.parse(raw) };
-    parsed.taskHistory = parsed.taskHistory || {};
-    parsed.lastVisitDate = parsed.lastVisitDate || '';
-    return parsed;
-  } catch { return defaults; }
-}
-function saveState() { localStorage.setItem(storeKey, JSON.stringify(state)); }
-
-function todayKey() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-function weekDateKeys() {
-  const now = new Date();
-  const day = now.getDay() || 7;
-  const mon = new Date(now);
-  mon.setDate(now.getDate() - day + 1);
-  const keys = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(mon);
-    d.setDate(mon.getDate() + i);
-    keys.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
-  }
-  return keys;
-}
-
-function weekCount(taskId) {
-  const keys = weekDateKeys();
-  return keys.reduce((sum, k) => {
-    if (state.taskHistory[k] && state.taskHistory[k][taskId]) return sum + 1;
-    return sum;
-  }, 0);
-}
-
-function resetDailyIfNeeded() {
-  const today = todayKey();
-  if (state.lastVisitDate !== today) {
-    state.tasks.forEach(t => { t.done = false; });
-    state.lastVisitDate = today;
-    saveState();
-  }
-}
-resetDailyIfNeeded();
-
-let currentPage = 'tasks';
-
-/* =============== Navigation =============== */
-function switchPage(page) {
-  currentPage = page;
-  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
-  render();
-}
-
-/* =============== Helpers =============== */
-const todayStr = () => new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
-const weekRange = () => {
-  const now = new Date();
-  const day = now.getDay() || 7;
-  const mon = new Date(now); mon.setDate(now.getDate() - day + 1);
-  const sun = new Date(now); sun.setDate(now.getDate() + (7 - day));
-  const fmt = d => `${d.getMonth()+1}/${d.getDate()}`;
-  return `${fmt(mon)} - ${fmt(sun)}`;
-};
-const isSunday = () => new Date().getDay() === 0;
-
-/* =============== Daily Tasks =============== */
-function renderTasks() {
-  const pending = state.tasks.filter(t => !t.done).length;
-  const total = state.tasks.length;
-  const today = new Date();
-  const dateLabel = `${today.getMonth()+1}/${today.getDate()} 周${'日一二三四五六'[today.getDay()]}`;
-
-  let html = `
-    <div class="mb-4 flex items-start justify-between">
-      <div>
-        <h2 class="text-2xl font-bold text-gray-800">每日任务</h2>
-        <p class="text-sm text-gray-500 mt-1">今日待办 · ${dateLabel}</p>
-      </div>
-      <button onclick="requestNotifyPermission()" id="notify-btn" class="w-10 h-10 rounded-full bg-white flex items-center justify-center text-gray-500" title="开启任务提醒">
-        <svg id="notify-icon" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-      </button>
-    </div>
-
-    <div class="card p-4 mb-4">
-      <div class="flex items-center gap-2 mb-3">
-        <span class="text-xl">✅</span>
-        <span class="font-bold text-gray-800">今日待办清单</span>
-      </div>
-      <div class="space-y-3" id="task-list">
-        ${state.tasks.map(t => taskItem(t)).join('')}
-      </div>
-      <div class="mt-4 space-y-2">
-        <input id="new-task-title" type="text" placeholder="任务名称..." class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
-        <div class="flex gap-2">
-          <input id="new-task-reminder" type="time" class="flex-1 bg-gray-100 rounded-xl px-3 py-2 text-sm text-gray-600">
-          <button onclick="addTask()" class="btn-primary px-5 py-2 text-sm font-medium">添加</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="card p-4 mb-4">
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <span class="text-xl">📊</span>
-          <span class="font-bold text-gray-800">本周完成情况</span>
-        </div>
-        <span class="text-xs text-gray-400">${weekRange()}</span>
-      </div>
-      <div class="space-y-2">
-        ${state.tasks.map(t => {
-          const c = weekCount(t.id);
-          return `
-          <div class="flex items-center justify-between text-sm">
-            <span class="text-gray-700">${t.title}</span>
-            <span class="font-medium ${c > 0 ? 'text-green-500' : 'text-amber-500'}">${c}/7</span>
-          </div>
-          `;
-        }).join('')}
-      </div>
-      <div class="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
-        <span class="text-sm text-gray-500">今日进度</span>
-        <span class="text-lg font-bold text-gray-800">${total ? Math.round((total-pending)/total*100) : 0}%</span>
-      </div>
-    </div>
-  `;
-  return html;
-}
-
-function showWeekSummaryModal() {
-  const total = state.tasks.length;
-  const weekKeys = weekDateKeys();
-  const today = todayKey();
-  const completedTotal = weekKeys.reduce((sum, k) => {
-    if (k > today) return sum;
-    if (!state.taskHistory[k]) return sum;
-    return sum + Object.keys(state.taskHistory[k]).length;
-  }, 0);
-  const daysSoFar = weekKeys.filter(k => k <= today).length;
-  const expected = total * daysSoFar;
-  const rate = expected ? Math.min(100, Math.round(completedTotal/expected*100)) : 0;
-  showModal(`
-    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-6">
-      <div class="text-center mb-5">
-        <div class="text-4xl mb-2">🎉</div>
-        <h3 class="text-xl font-bold text-gray-800">本周总结</h3>
-        <p class="text-xs text-gray-400 mt-1">${weekRange()}</p>
-      </div>
-      <div class="space-y-3 mb-5">
-        ${state.tasks.map(t => {
-          const c = weekCount(t.id);
-          return `
-          <div class="flex items-center justify-between text-sm bg-gray-50 rounded-xl px-3 py-2">
-            <span class="text-gray-700">${t.title}</span>
-            <span class="font-medium ${c > 0 ? 'text-green-500' : 'text-amber-500'}">${c}/7 天</span>
-          </div>
-          `;
-        }).join('')}
-      </div>
-      <div class="flex items-center justify-between bg-amber-50 rounded-2xl p-4 mb-2">
-        <span class="text-sm font-medium text-gray-700">本周完成率</span>
-        <span class="text-2xl font-bold text-gray-800">${rate}%</span>
-      </div>
-      <p class="text-xs text-center text-gray-400 mb-5">本周已完成 ${completedTotal} 次 / 应完成 ${expected} 次</p>
-      <button onclick="closeModal()" class="w-full py-3 rounded-xl btn-primary text-sm font-medium">知道了</button>
-    </div>
-  `);
-}
-
-function taskItem(t) {
-  return `
-    <div class="flex items-start gap-3 p-2 rounded-xl hover:bg-gray-50 transition">
-      <div class="checkbox ${t.done ? 'done' : ''}" onclick="toggleTask(${t.id})">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-      </div>
-      <div class="flex-1 min-w-0">
-        <div class="text-[15px] font-semibold text-gray-800 ${t.done ? 'line-through text-gray-400' : ''}">${t.title}</div>
-        <div class="text-xs text-gray-500 mt-0.5">${t.desc || ''}</div>
-        <div class="flex items-center gap-1 mt-1 text-xs text-gray-500">
-          <span>⏰</span>
-          <span>${t.reminder || '无提醒'}</span>
-        </div>
-      </div>
-      <div class="flex flex-col items-end gap-2">
-        <span class="text-[11px] px-2 py-1 rounded-full font-medium ${t.done ? 'status-done' : 'status-pending'}">${t.done ? '已完成' : '待完成'}</span>
-        <div class="flex gap-3">
-          <button onclick="openTaskModal(${t.id})" class="text-gray-500 hover:text-gray-800 text-xs font-medium">编辑</button>
-          <button onclick="deleteTask(${t.id})" class="text-gray-400 hover:text-red-500 text-xs">删除</button>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function addTask() {
-  const titleEl = document.getElementById('new-task-title');
-  const reminderEl = document.getElementById('new-task-reminder');
-  const title = titleEl.value.trim();
-  if (!title) return;
-  state.tasks.push({ id: Date.now(), title, desc: '', reminder: reminderEl.value, done: false });
-  titleEl.value = '';
-  reminderEl.value = '';
-  saveState(); render();
-}
-function toggleTask(id) {
-  const t = state.tasks.find(x => x.id === id);
-  if (t) {
-    t.done = !t.done;
-    const k = todayKey();
-    if (!state.taskHistory[k]) state.taskHistory[k] = {};
-    if (t.done) state.taskHistory[k][id] = true;
-    else delete state.taskHistory[k][id];
-    saveState(); render();
-  }
-}
-function deleteTask(id) {
-  if (confirm('确定删除这个任务吗？')) {
-    state.tasks = state.tasks.filter(x => x.id !== id);
-    saveState(); render();
-  }
-}
-
-let editingTaskId = null;
-function openTaskModal(id = null) {
-  editingTaskId = id;
-  const t = id ? state.tasks.find(x => x.id === id) : null;
-  showModal(`
-    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
-      <h3 class="text-lg font-bold text-gray-800 mb-4 text-center">${id ? '编辑任务' : '新建任务'}</h3>
-      <div class="space-y-3">
-        <div>
-          <label class="text-xs text-gray-500 mb-1 block">任务标题 *</label>
-          <input id="task-title" type="text" placeholder="例如：英语听力" value="${escapeHtml(t ? t.title : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
-        </div>
-        <div>
-          <label class="text-xs text-gray-500 mb-1 block">任务内容</label>
-          <input id="task-desc" type="text" placeholder="补充说明..." value="${escapeHtml(t ? (t.desc || '') : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
-        </div>
-        <div>
-          <label class="text-xs text-gray-500 mb-1 block">提醒时间</label>
-          <input id="task-reminder" type="time" value="${escapeHtml(t ? (t.reminder || '') : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm text-gray-600">
-        </div>
-      </div>
-      <div class="flex gap-3 mt-5">
-        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">取消</button>
-        <button onclick="saveTask()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">保存</button>
-      </div>
-    </div>
-  `);
-}
-function saveTask() {
-  const title = document.getElementById('task-title').value.trim();
-  const desc = document.getElementById('task-desc').value.trim();
-  const reminder = document.getElementById('task-reminder').value;
-  if (!title) { alert('请填写任务标题'); return; }
-  if (editingTaskId) {
-    const t = state.tasks.find(x => x.id === editingTaskId);
-    t.title = title;
-    t.desc = desc;
-    t.reminder = reminder;
-    clearNotified(editingTaskId);
-  } else {
-    state.tasks.push({ id: Date.now(), title, desc, reminder, done: false });
-  }
-  saveState(); closeModal(); render();
-}
-
-/* =============== Study Notes =============== */
-function renderNotes() {
-  return `
-    <div class="mb-4">
-      <h2 class="text-2xl font-bold text-gray-800">学习笔记</h2>
-      <p class="text-sm text-gray-500 mt-1">记录每天学到的新知识</p>
-    </div>
-    <div class="flex gap-2 mb-4">
-      <button onclick="openNoteModal()" class="btn-primary flex-1 py-3 text-sm font-medium shadow-sm">+ 新建笔记</button>
-      <button onclick="pasteToNewNote()" class="card px-4 py-3 text-sm font-medium text-gray-700 shadow-sm">粘贴</button>
-    </div>
-    <div id="notes-list" class="space-y-3">
-      ${state.notes.length ? state.notes.map(n => noteCard(n)).join('') : emptyState('还没有笔记，点击上方新建')}</div>
-    </div>
-  `;
-}
-function noteCard(n) {
-  const preview = n.content ? n.content.slice(0, 60) + (n.content.length > 60 ? '...' : '') : '暂无内容';
-  return `
-    <div class="card p-4">
-      <div class="flex items-start justify-between gap-2">
-        <h3 class="font-bold text-gray-800 text-[15px]">${n.title || '未命名笔记'}</h3>
-        <span class="text-[10px] text-gray-400 whitespace-nowrap">${n.time || ''}</span>
-      </div>
-      <p class="text-sm text-gray-600 mt-2 leading-relaxed whitespace-pre-wrap">${preview}</p>
-      <div class="flex gap-3 mt-3">
-        <button onclick="openNoteModal(${n.id})" class="text-xs text-gray-600 font-medium">编辑</button>
-        <button onclick="copyNote(${n.id})" class="text-xs text-gray-600 font-medium">复制</button>
-        <button onclick="deleteNote(${n.id})" class="text-xs text-red-500 font-medium">删除</button>
-      </div>
-    </div>
-  `;
-}
-
-let editingNoteId = null;
-let noteClipboard = '';
-function openNoteModal(id = null) {
-  editingNoteId = id;
-  const n = id ? state.notes.find(x => x.id === id) : null;
-  const title = n ? n.title : '';
-  const content = n ? n.content : '';
-  showModal(`
-    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
-      <h3 class="text-lg font-bold text-gray-800 mb-4">${id ? '编辑笔记' : '新建笔记'}</h3>
-      <input id="note-title" type="text" placeholder="标题" value="${escapeHtml(title)}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm mb-3">
-      <textarea id="note-content" placeholder="把今天学到的内容写在这里..." class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm h-40 resize-none">${escapeHtml(content)}</textarea>
-      <div class="flex gap-3 mt-5">
-        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">取消</button>
-        <button onclick="saveNote()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">保存</button>
-      </div>
-    </div>
-  `);
-}
-async function pasteToNewNote() {
-  try { noteClipboard = await navigator.clipboard.readText(); } catch { noteClipboard = noteClipboard || ''; }
-  openNoteModal();
-  setTimeout(() => {
-    const el = document.getElementById('note-content');
-    if (el && noteClipboard) el.value = noteClipboard;
-  }, 50);
-}
-function saveNote() {
-  const title = document.getElementById('note-title').value.trim();
-  const content = document.getElementById('note-content').value;
-  if (!title && !content) { closeModal(); return; }
-  const now = new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-  if (editingNoteId) {
-    const n = state.notes.find(x => x.id === editingNoteId);
-    n.title = title || n.title;
-    n.content = content;
-    n.time = now;
-  } else {
-    state.notes.unshift({ id: Date.now(), title: title || '未命名笔记', content, time: now });
-  }
-  saveState(); closeModal(); render();
-}
-function copyNote(id) {
-  const n = state.notes.find(x => x.id === id);
-  if (n) {
-    navigator.clipboard.writeText(n.content).then(() => alert('已复制到剪贴板')).catch(() => { noteClipboard = n.content; alert('已复制（兼容模式）'); });
-  }
-}
-function deleteNote(id) {
-  if (confirm('确定删除这条笔记吗？')) {
-    state.notes = state.notes.filter(x => x.id !== id);
-    saveState(); render();
-  }
-}
-
-/* =============== Finance =============== */
-function calcPnL(item) {
-  const buy = parseFloat(item.buy) || 0;
-  const sell = parseFloat(item.sell) || 0;
-  const qty = parseInt(item.qty) || 0;
-  const fee = parseFloat(item.fee) || 0;
-  if (!sell) return 0;
-  return (sell - buy) * qty - fee;
-}
-function renderFinance() {
-  const total = state.finance.reduce((sum, i) => sum + calcPnL(i), 0);
-  const sign = total >= 0 ? '+' : '';
-  return `
-    <div class="mb-4">
-      <h2 class="text-2xl font-bold text-gray-800">理财记录</h2>
-      <p class="text-sm text-gray-500 mt-1">追踪投资收益</p>
-    </div>
-    <div class="card p-4 mb-4 flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <span class="text-xl">📊</span>
-        <span class="font-bold text-gray-800">总盈亏</span>
-      </div>
-      <span class="text-2xl font-bold ${total >= 0 ? 'pnl-positive' : 'pnl-negative'}">${sign}${total.toFixed(2)}</span>
-    </div>
-    <button onclick="openFinanceModal()" class="btn-primary w-full py-3 text-sm font-medium mb-4 shadow-sm">+ 新建理财记录</button>
-    <div class="space-y-3">
-      ${state.finance.length ? state.finance.map(f => financeCard(f)).join('') : emptyState('还没有理财记录')}</div>
-    </div>
-  `;
-}
-function financeCard(f) {
-  const pnl = calcPnL(f);
-  const sign = pnl >= 0 ? '+' : '';
-  return `
-    <div class="card p-4">
-      <div class="flex items-start justify-between">
-        <div>
-          <div class="text-[15px] font-bold text-gray-800">${f.name}</div>
-          <div class="text-xs text-gray-400 mt-0.5">${f.date}</div>
-        </div>
-        <span class="text-lg font-bold ${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">${sign}${pnl.toFixed(2)}</span>
-      </div>
-      <div class="grid grid-cols-2 fin-grid gap-2 mt-3 text-xs text-gray-600">
-        <div class="bg-gray-50 rounded-lg p-2">买入价 <span class="font-semibold">${f.buy}</span></div>
-        <div class="bg-gray-50 rounded-lg p-2">卖出价 <span class="font-semibold">${f.sell || '-'}</span></div>
-        <div class="bg-gray-50 rounded-lg p-2">数量 <span class="font-semibold">${f.qty}</span></div>
-        <div class="bg-gray-50 rounded-lg p-2">手续费 <span class="font-semibold">${f.fee}</span></div>
-      </div>
-      <div class="flex gap-3 mt-3">
-        <button onclick="openFinanceModal(${f.id})" class="text-xs text-gray-600 font-medium">编辑</button>
-        <button onclick="deleteFinance(${f.id})" class="text-xs text-red-500 font-medium">删除</button>
-      </div>
-    </div>
-  `;
-}
-
-let editingFinanceId = null;
-function openFinanceModal(id = null) {
-  editingFinanceId = id;
-  const f = id ? state.finance.find(x => x.id === id) : null;
-  const today = new Date().toISOString().slice(0,10);
-  showModal(`
-    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
-      <h3 class="text-lg font-bold text-gray-800 mb-4 text-center">${id ? '编辑理财记录' : '新建理财记录'}</h3>
-      <div class="space-y-3">
-        <div>
-          <label class="text-xs text-gray-500 mb-1 block">日期</label>
-          <input id="fin-date" type="date" value="${escapeHtml(f ? (f.date || today) : today)}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
-        </div>
-        <div>
-          <label class="text-xs text-gray-500 mb-1 block">股票/基金名称 *</label>
-          <input id="fin-name" type="text" placeholder="例如：广深铁路" value="${escapeHtml(f ? (f.name || '') : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="text-xs text-gray-500 mb-1 block">买入价 *</label>
-            <input id="fin-buy" type="number" step="0.01" placeholder="0.00" value="${escapeHtml(f ? (f.buy || '') : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
-          </div>
-          <div>
-            <label class="text-xs text-gray-500 mb-1 block">卖出价</label>
-            <input id="fin-sell" type="number" step="0.01" placeholder="选填" value="${escapeHtml(f ? (f.sell || '') : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
-          </div>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="text-xs text-gray-500 mb-1 block">数量（股）*</label>
-            <input id="fin-qty" type="number" placeholder="0" value="${escapeHtml(f ? (f.qty || '') : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
-          </div>
-          <div>
-            <label class="text-xs text-gray-500 mb-1 block">手续费</label>
-            <input id="fin-fee" type="number" step="0.01" placeholder="0.00" value="${escapeHtml(f ? (f.fee || '') : '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-sm">
-          </div>
-        </div>
-      </div>
-      <div class="flex gap-3 mt-5">
-        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">取消</button>
-        <button onclick="saveFinance()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">保存</button>
-      </div>
-    </div>
-  `);
-}
-function saveFinance() {
-  const item = {
-    date: document.getElementById('fin-date').value,
-    name: document.getElementById('fin-name').value.trim(),
-    buy: document.getElementById('fin-buy').value,
-    sell: document.getElementById('fin-sell').value,
-    qty: document.getElementById('fin-qty').value,
-    fee: document.getElementById('fin-fee').value || '0'
-  };
-  if (!item.name || !item.buy || !item.qty) { alert('请填写必填项'); return; }
-  if (editingFinanceId) {
-    const f = state.finance.find(x => x.id === editingFinanceId);
-    Object.assign(f, item);
-  } else {
-    state.finance.unshift({ id: Date.now(), ...item });
-  }
-  saveState(); closeModal(); render();
-}
-function deleteFinance(id) {
-  if (confirm('确定删除这条记录吗？')) {
-    state.finance = state.finance.filter(x => x.id !== id);
-    saveState(); render();
-  }
-}
-
-/* =============== UI Utilities =============== */
-function emptyState(text) {
-  return `<div class="text-center py-12 text-gray-400 text-sm">${text}</div>`;
-}
-function showModal(content) {
-  const m = document.getElementById('modal');
-  m.innerHTML = content;
-  m.classList.remove('hidden');
-}
-function closeModal() {
-  document.getElementById('modal').classList.add('hidden');
-  document.getElementById('modal').innerHTML = '';
-}
-function escapeHtml(text) {
-  const div = document.createElement('div'); div.textContent = text; return div.innerHTML;
-}
-
-function render() {
-  const content = document.getElementById('content');
-  if (currentPage === 'tasks') content.innerHTML = renderTasks();
-  else if (currentPage === 'notes') content.innerHTML = renderNotes();
-  else if (currentPage === 'finance') content.innerHTML = renderFinance();
-}
-
-// Init
-document.getElementById('modal').addEventListener('click', e => {
-  if (e.target.id === 'modal') closeModal();
-});
-// render() is called in unlockApp() after password verified
-// Sunday summary is also triggered in unlockApp()
-
-// Service Worker 注册（支持离线访问）
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
-}
-
-/* =============== Task Reminders (Notifications + Vibration + Sound) =============== */
-const notifiedKey = 'dora_notified_reminders';
-function getNotified() {
-  try { return JSON.parse(localStorage.getItem(notifiedKey)) || {}; } catch { return {}; }
-}
-function setNotified(map) { localStorage.setItem(notifiedKey, JSON.stringify(map)); }
-function clearNotified(taskId) {
-  const map = getNotified();
-  delete map[taskId];
-  setNotified(map);
-}
-
-async function requestNotifyPermission() {
-  if (!('Notification' in window)) { alert('你的浏览器不支持系统通知'); return; }
-  const result = await Notification.requestPermission();
-  updateNotifyIcon();
-  if (result === 'granted') {
-    testReminder('提醒已开启', "Dora's 工作台会在任务时间到达时通知你。");
-  } else {
-    alert('需要通知权限才能响铃提醒，请在浏览器设置中允许通知。');
-  }
-}
-function updateNotifyIcon() {
-  const btn = document.getElementById('notify-btn');
-  const icon = document.getElementById('notify-icon');
-  if (!btn || !icon) return;
-  const granted = Notification.permission === 'granted';
-  btn.classList.toggle('text-green-600', granted);
-  btn.classList.toggle('bell-ring', granted);
-  icon.innerHTML = granted
-    ? '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path><path d="M13.5 5V2"></path><path d="M10.5 5V2"></path>'
-    : '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path>';
-}
-
-function playAlertSound() {
-  try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.3);
-    gain.gain.setValueAtTime(0.6, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.5);
-  } catch {}
-}
-
-function testReminder(title, body) {
-  playAlertSound();
-  if ('vibrate' in navigator) navigator.vibrate([200, 100, 200, 100, 200]);
-  if (Notification.permission === 'granted') {
-    new Notification(title, {
-      body,
-      icon: 'icon.jpg',
-      badge: 'icon.jpg',
-      tag: 'dora-test',
-      requireInteraction: false
-    });
-  }
-}
-
-function checkReminders() {
-  if (Notification.permission !== 'granted') return;
-  const now = new Date();
-  const current = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  const map = getNotified();
-  let changed = false;
-  state.tasks.forEach(t => {
-    if (!t.reminder || t.done) return;
-    if (t.reminder === current && map[t.id] !== current) {
-      map[t.id] = current;
-      changed = true;
-      playAlertSound();
-      if ('vibrate' in navigator) navigator.vibrate([300, 150, 300, 150, 500]);
-      new Notification('任务时间到了', {
-        body: t.title,
-        icon: 'icon.jpg',
-        badge: 'icon.jpg',
-        tag: 'dora-task-' + t.id,
-        requireInteraction: true
-      });
-    }
-  });
-  if (changed) setNotified(map);
-}
-
-// 首次加载时请求通知权限，并启动定时检查
-updateNotifyIcon();
-if ('Notification' in window && Notification.permission === 'default') {
-  requestNotifyPermission();
-}
-setInterval(checkReminders, 15000);
-checkReminders();
 </script>
 </body>
 </html>
