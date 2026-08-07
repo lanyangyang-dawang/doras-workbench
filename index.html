@@ -115,6 +115,12 @@
       <button onclick="openDataSyncModal()" class="w-full py-2 rounded-xl bg-blue-50 text-blue-700 text-[11px] font-medium flex items-center justify-center gap-1">
         <span>🔄</span><span>数据同步</span>
       </button>
+      <button id="restore-backup-btn" onclick="restoreImportBackupFromSidebar()" class="w-full py-2 rounded-xl bg-amber-50 text-amber-700 text-[11px] font-medium flex items-center justify-center gap-1 hidden">
+        <span>🩹</span><span>恢复最近备份</span>
+      </button>
+      <button onclick="openPushSettingsModal()" class="w-full py-2 rounded-xl bg-gray-100 text-gray-600 text-[11px] font-medium flex items-center justify-center gap-1">
+        <span>🔔</span><span>微信推送</span>
+      </button>
       <button onclick="openChangePwdModal()" class="w-full py-2 rounded-xl bg-gray-100 text-gray-600 text-[11px] font-medium flex items-center justify-center gap-1">
         <span>🔒</span><span>修改密码</span>
       </button>
@@ -207,6 +213,9 @@ function weekDateKeys() {
 function initApp() {
   checkDailyReset();
   switchPage('tasks');
+  refreshRestoreBtn();
+  setInterval(checkPushReminders, 30000);
+  checkPushReminders();
 }
 
 function checkDailyReset() {
@@ -295,10 +304,10 @@ function renderTasks() {
         <span class="text-sm text-gray-500">${weekRange()}</span>
       </div>
       <div class="space-y-2">
-        ${
-          state.tasks.map(t => {
-            const history = state.taskHistory[t.id] || [];
-            return `
+        ${ state.tasks.map(t => {
+          const weekKeys = weekDateKeys();
+          const history = (state.taskHistory[t.id] || []).filter(d => weekKeys.includes(d));
+          return `
               <div class="flex items-center justify-between text-sm">
                 <span class="text-gray-700 ${t.done ? 'line-through text-gray-400' : ''}">${escapeHtml(t.title)}</span>
                 <span class="text-gray-500">${history.length}/7</span>
@@ -862,6 +871,21 @@ function render() {
   else if (currentPage === 'finance') {
     content.innerHTML = viewingSectorDetail && currentSector ? renderSectorDetail(currentSector) : renderFinance();
   }
+  refreshRestoreBtn();
+}
+
+function refreshRestoreBtn() {
+  const btn = document.getElementById('restore-backup-btn');
+  if (!btn) return;
+  btn.classList.toggle('hidden', !hasImportBackup());
+}
+
+function restoreImportBackupFromSidebar() {
+  restoreImportBackup();
+}
+
+function hasImportBackup() {
+  return !!safeGetItem('dora_import_backup');
 }
 
 /* =============== Lock Screen =============== */
@@ -1112,6 +1136,128 @@ function changePwd() {
   });
 }
 
+/* =============== PushPlus WeChat Reminders =============== */
+const pushKey = 'dora_pushplus_config';
+function getPushConfig() {
+  try {
+    const raw = safeGetItem(pushKey);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return { token: '', enabled: false };
+}
+function savePushConfig(cfg) {
+  safeSetItem(pushKey, JSON.stringify(cfg));
+}
+async function pushPlusSend(token, title, content) {
+  if (!token) throw new Error('token 为空');
+  const body = JSON.stringify({ token, title, content, template: 'txt' });
+  let lastErr = null;
+  // 主路径：POST（带超时 + CORS 预检，pushplus 官方支持）
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 10000);
+    const resp = await fetch('https://www.pushplus.plus/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      signal: ctrl.signal
+    });
+    clearTimeout(tid);
+    const json = await resp.json().catch(() => null);
+    if (json && json.code === 200) return json;
+    lastErr = new Error((json && json.msg) || ('HTTP ' + resp.status));
+  } catch (e) {
+    lastErr = e;
+  }
+  // 回退：GET 简单请求（不触发 CORS 预检）
+  try {
+    const params = new URLSearchParams({ token, title, content, template: 'txt' });
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 10000);
+    const resp = await fetch('https://www.pushplus.plus/send?' + params.toString(), {
+      method: 'GET',
+      signal: ctrl.signal
+    });
+    clearTimeout(tid);
+    const json = await resp.json().catch(() => null);
+    if (json && json.code === 200) return json;
+    lastErr = new Error((json && json.msg) || ('HTTP ' + resp.status));
+  } catch (e) {
+    lastErr = e;
+  }
+  // 两条路都失败
+  const msg = (lastErr && lastErr.message) || '未知错误';
+  throw new Error(msg + ' · 请检查网络或 pushplus 服务状态');
+}
+function openPushSettingsModal() {
+  const cfg = getPushConfig();
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
+      <div class="text-center mb-4">
+        <div class="text-3xl mb-2">🔔</div>
+        <h3 class="text-lg font-bold text-gray-800">微信推送提醒</h3>
+        <p class="text-xs text-gray-500 mt-1 leading-relaxed">到点把任务提醒推送到你的微信（PushPlus）</p>
+      </div>
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs text-gray-500 mb-1 block">PushPlus Token</label>
+          <input id="push-token" type="text" placeholder="粘贴你的 pushplus token" value="${escapeHtml(cfg.token || '')}" class="w-full bg-gray-100 rounded-xl px-3 py-2.5 text-xs font-mono break-all">
+          <p class="text-[10px] text-gray-400 mt-1 leading-relaxed">还没注册？微信扫码 pushplus.plus 即可一键获取</p>
+        </div>
+        <label class="flex items-center justify-between bg-gray-100 rounded-xl px-3 py-2.5 cursor-pointer">
+          <span class="text-sm text-gray-700 font-medium">启用微信推送</span>
+          <input id="push-enabled" type="checkbox" ${cfg.enabled ? 'checked' : ''} class="w-4 h-4 accent-amber-500">
+        </label>
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800 leading-relaxed">
+          <p class="font-bold mb-1">说明</p>
+          <p>启用后，带有「提醒时间」的未完成任务会在到点时通过微信推送。浏览器需要保持打开（或把 PWA 挂后台）。</p>
+        </div>
+      </div>
+      <div class="flex gap-3 mt-5">
+        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">关闭</button>
+        <button onclick="testPush()" class="flex-1 py-3 rounded-xl bg-blue-500 text-white text-sm font-medium">测试</button>
+        <button onclick="savePushSettings()" class="flex-1 py-3 rounded-xl btn-primary text-sm font-medium">保存</button>
+      </div>
+    </div>
+  `);
+}
+function savePushSettings() {
+  const token = document.getElementById('push-token').value.trim();
+  const enabled = document.getElementById('push-enabled').checked;
+  savePushConfig({ token, enabled });
+  closeModal();
+}
+async function testPush() {
+  const token = document.getElementById('push-token').value.trim();
+  if (!token) { alert('请先填入 PushPlus Token'); return; }
+  try {
+    await pushPlusSend(token, 'Dora 工作台测试', '收到这条消息说明推送配置成功！');
+    alert('已发送，请到微信查看。如果没收到请检查 token 是否正确或网络是否可达。');
+  } catch (e) {
+    alert('发送失败：' + (e.message || '未知错误'));
+  }
+}
+function checkPushReminders() {
+  const cfg = getPushConfig();
+  if (!cfg.enabled || !cfg.token) return;
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const curTime = `${hh}:${mm}`;
+  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  state.tasks.forEach(t => {
+    if (!t.done && t.reminder && t.reminder === curTime) {
+      const sentKey = `dora_push_sent_${today}_${t.id}_${curTime}`;
+      if (!safeGetItem(sentKey)) {
+        safeSetItem(sentKey, '1');
+        const title = `⏰ 任务提醒：${t.title}`;
+        const content = `该完成任务了！${t.desc ? '\n任务内容：' + t.desc : ''}`;
+        pushPlusSend(cfg.token, title, content).catch(e => console.warn('push failed', e));
+      }
+    }
+  });
+}
+
 /* =============== Data Sync (Export / Import) =============== */
 function openDataSyncModal() {
   showModal(`
@@ -1236,33 +1382,77 @@ function showImportModal() {
 function importData() {
   const err = document.getElementById('import-error');
   err.classList.add('hidden');
-  const raw = document.getElementById('import-text').value.trim();
+  let raw = document.getElementById('import-text').value.trim();
   if (!raw) {
     err.textContent = '请粘贴数据码';
     err.classList.remove('hidden');
     return;
   }
-  let jsonStr;
+  // ====== 自动清理数据码 ======
+  // 1. 移除所有空白和反斜杠（跨设备复制时偶尔会引入）
+  const before = raw;
+  raw = raw.replace(/[\s\\]+/g, '');
+  // 2. 兼容 URL-safe Base64（将 - / _ 还原成 + 和 /）
+  raw = raw.replace(/-/g, '+').replace(/_/g, '/');
+  const cleanedCount = before.length - raw.length;
+  // 3. 去除等号填充（pako 输出的 btoa 可能因为尾部 padding 出现 =，但放在末尾是合法的；这里只移除中间可能误加的字符）
+  // ====== 字符集校验 ======
+  // 标准 Base64 字符集：A-Z a-z 0-9 + / =
+  const invalidChars = raw.match(/[^A-Za-z0-9+\/=]/g);
+  if (invalidChars && invalidChars.length > 0) {
+    const uniq = [...new Set(invalidChars)];
+    err.innerHTML = '数据码包含 <span class="font-mono">' + uniq.map(c => c === ' ' ? '␣' : c).join('') + '</span> 等非法字符（共 ' + invalidChars.length + ' 个）。<br>请重新复制完整的数据码再导入。';
+    err.classList.remove('hidden');
+    return;
+  }
+  if (cleanedCount > 0) {
+    console.info('[import] 自动清理掉了 ' + cleanedCount + ' 个干扰字符（空白/反斜杠/URL-safe 转换）');
+  }
+  if (raw.length < 20) {
+    err.textContent = '数据码太短（仅 ' + raw.length + ' 字符）。请确认复制完整。';
+    err.classList.remove('hidden');
+    return;
+  }
+  let jsonStr = null;
+  const failReasons = [];
+  // 1. 尝试 pako（zlib/deflate）解压
   try {
-    // 1. 尝试 pako（zlib/deflate）解压
     if (typeof pako !== 'undefined') {
-      try {
-        const binary = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+      const binary = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+      if (binary.length && binary[0] === 0x78) {
+        // 有 zlib header 才走 pako
         const inflated = pako.inflate(binary, { to: 'string' });
-        jsonStr = inflated;
-      } catch (_) {}
+        if (inflated && inflated.trimLeft().charAt(0) === '{') { jsonStr = inflated; }
+      }
     }
-    // 2. 尝试 LZString 解压（兼容旧版导出）
-    if (!jsonStr && typeof LZString !== 'undefined') {
-      jsonStr = LZString.decompressFromBase64(raw);
-    }
-    // 3. 直接解析 JSON（兼容未压缩）
-    if (!jsonStr) {
-      JSON.parse(raw);
-      jsonStr = raw;
-    }
-  } catch (e) {
-    err.textContent = '数据码格式不正确，请检查后重试';
+  } catch (e) { failReasons.push('pako: ' + (e.message || e)); }
+  // 2. 尝试 LZString 解压
+  if (!jsonStr && typeof LZString !== 'undefined') {
+    try {
+      const out = LZString.decompressFromBase64(raw);
+      // 严格校验：解出来必须看起来像 JSON（以左花括号开头）
+      if (out && out.trimLeft().charAt(0) === '{') jsonStr = out;
+      else failReasons.push('LZString 解压结果不像 JSON');
+    } catch (e) { failReasons.push('LZString: ' + (e.message || e)); }
+  }
+  // 3. 尝试 unicode-base64（最早版本用的兼容路径：btoa(unescape(encodeURIComponent(json)))）
+  if (!jsonStr) {
+    try {
+      const utf8Bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+      const decoded = new TextDecoder('utf-8').decode(utf8Bytes);
+      if (decoded && decoded.trimLeft().charAt(0) === '{') jsonStr = decoded;
+      else failReasons.push('unicode-base64 解码结果不像 JSON');
+    } catch (e) { failReasons.push('unicode-base64: ' + (e.message || e)); }
+  }
+  // 4. 直接 JSON 解析（明文数据码兼容）
+  if (!jsonStr) {
+    try {
+      const obj = JSON.parse(raw);
+      if (obj && typeof obj === 'object') jsonStr = raw;
+    } catch (e) { failReasons.push('直接 JSON: ' + (e.message || e)); }
+  }
+  if (!jsonStr) {
+    err.innerHTML = '数据码格式不正确<br><span class="text-[10px] text-gray-500">(' + failReasons.join('; ') + ')<br>建议：回到原设备重新导出 → 完整复制数据码 → 重新导入</span>';
     err.classList.remove('hidden');
     return;
   }
@@ -1270,12 +1460,29 @@ function importData() {
   try {
     data = JSON.parse(jsonStr);
   } catch (e) {
-    err.textContent = '数据码解析失败，请检查后重试';
+    err.textContent = '数据码解析失败：' + (e.message || e);
     err.classList.remove('hidden');
     return;
   }
-  if (!confirm('导入后当前设备的数据会被替换，确认继续？')) return;
-  // 用默认值兜底缺失字段
+  if (!data || typeof data !== 'object') {
+    err.textContent = '数据码内容不是合法的对象结构';
+    err.classList.remove('hidden');
+    return;
+  }
+  // 兼容性校验：避免导入过期的/不完整的数据
+  const incomingTasks = Array.isArray(data.tasks) ? data.tasks.length : 0;
+  const incomingNotes = Array.isArray(data.notes) ? data.notes.length : 0;
+  const localTasks = state.tasks.length;
+  const localNotes = state.notes.length;
+  const localFinance = (state.finance || []).length;
+  if (!confirm(`即将导入：${incomingTasks} 个任务，${incomingNotes} 个笔记。\n当前设备：${localTasks} 个任务，${localNotes} 个笔记。\n\n导入后<strong>当前设备的数据会被覆盖</strong>。\n（确认导入前会自动备份，可随时还原）`)) return;
+  // 在覆盖前备份当前 state（防止误清空）
+  const backup = {
+    ts: new Date().toISOString(),
+    state: JSON.parse(JSON.stringify(state))
+  };
+  safeSetItem('dora_import_backup', JSON.stringify(backup));
+  // 用默认值兜底
   const defaults = {
     tasks: [], notes: [], finance: [], taskHistory: {}, lastVisitDate: ''
   };
@@ -1287,8 +1494,48 @@ function importData() {
   state.finance.forEach(item => {
     if (!item.sector && item.name) item.sector = item.name;
   });
-  saveState(); closeModal(); render();
-  alert('数据导入成功！');
+  saveState(); render();
+  // 用模态框展示结果 + 撤销入口
+  showModal(`
+    <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-[430px] p-5">
+      <div class="text-center mb-4">
+        <div class="text-3xl mb-2">✅</div>
+        <h3 class="text-lg font-bold text-gray-800">数据导入成功</h3>
+        <p class="text-xs text-gray-500 mt-1">已自动备份本次导入前的状态</p>
+      </div>
+      <div class="bg-gray-50 rounded-xl p-3 text-xs text-gray-600 space-y-1 mb-4">
+        <div class="flex justify-between"><span>任务数</span><span>${state.tasks.length}（之前 ${localTasks}）</span></div>
+        <div class="flex justify-between"><span>笔记数</span><span>${state.notes.length}（之前 ${localNotes}）</span></div>
+        <div class="flex justify-between"><span>理财记录</span><span>${state.finance.length}（之前 ${localFinance}）</span></div>
+      </div>
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800 mb-4 leading-relaxed">
+        如果发现数据不对，点下方「还原」可一键恢复到本机导入前的状态（仅本次有效，后续操作会覆盖此备份）。
+      </div>
+      <div class="flex gap-3">
+        <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-medium">完成</button>
+        <button onclick="restoreImportBackup()" class="flex-1 py-3 rounded-xl bg-amber-500 text-white text-sm font-medium">还原备份</button>
+      </div>
+    </div>
+  `);
+}
+
+function restoreImportBackup() {
+  const raw = safeGetItem('dora_import_backup');
+  if (!raw) { alert('已经没有可恢复的备份了。'); return; }
+  let backup;
+  try { backup = JSON.parse(raw); } catch (e) { alert('备份数据损坏'); return; }
+  if (!backup.state) { alert('备份数据损坏'); return; }
+  if (!confirm(`将恢复到 ${backup.ts} 时的状态，替代当前已导入的数据。\n确认继续？`)) return;
+  state = backup.state;
+  // 兼容性兜底
+  if (!Array.isArray(state.tasks)) state.tasks = [];
+  if (!Array.isArray(state.notes)) state.notes = [];
+  if (!Array.isArray(state.finance)) state.finance = [];
+  if (!state.taskHistory) state.taskHistory = {};
+  saveState(); render();
+  safeRemoveItem('dora_import_backup');
+  closeModal();
+  alert('已恢复到导入前的状态 ✅');
 }
 
 // Allow Enter key on lock screen

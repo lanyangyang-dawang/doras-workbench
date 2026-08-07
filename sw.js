@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dora-workbench-v4';
+const CACHE_NAME = 'dora-workbench-v9';
 const ASSETS = ['.', 'index.html', 'icon.jpg', 'manifest.json'];
 
 self.addEventListener('install', e => {
@@ -16,10 +16,17 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  const url = new URL(e.request.url);
+  // 跨域请求直接放行（避免拦截 pushplus 等外部 API）
+  if (url.origin !== self.location.origin) return;
+  // POST/PUT/DELETE 不进缓存
+  if (e.request.method !== 'GET') return;
   e.respondWith(
     caches.match(e.request).then(res => res || fetch(e.request).then(response => {
-      const clone = response.clone();
-      caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+      if (response && response.ok) {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+      }
       return response;
     }))
   );
